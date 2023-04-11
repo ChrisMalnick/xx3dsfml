@@ -6,7 +6,7 @@ xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscaptu
 
 *Note: The following instructions are for Linux.*
 
-xx3dsfml has two dependencies, [FTDI's](https://ftdichip.com/drivers/d3xx-drivers/) D3XX driver and [SFML](https://www.sfml-dev.org/).
+xx3dsfml has two dependencies, [FTDI's D3XX driver](https://ftdichip.com/drivers/d3xx-drivers/) and [SFML](https://www.sfml-dev.org/).
 
 The D3XX driver can be downloaded from the link above which also contains the installation instructions. However, in order to compile the xx3dsfml code, two additional steps need to be taken:
 
