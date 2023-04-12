@@ -51,7 +51,7 @@ bool open() {
 	}
 
 	if (FT_Create(const_cast<char*>(PRODUCT), FT_OPEN_BY_DESCRIPTION, &handle)) {
-		printf("[%s] Open failed.\n", NAME);
+		printf("[%s] Create failed.\n", NAME);
 		return false;
 	}
 
@@ -76,13 +76,15 @@ void capture() {
 	OVERLAPPED overlap[BUF_COUNT];
 
 start:
-	while (!connected);
+	while (!connected) {
+		if (!running) {
+			return;
+		}
+	}
 
 	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
 		if (FT_InitializeOverlapped(handle, &overlap[curr_buf])) {
 			printf("[%s] Initialize failed.\n", NAME);
-			connected = false;
-
 			goto end;
 		}
 	}
@@ -90,8 +92,6 @@ start:
 	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
 		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], RGB_FRAME_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
-			connected = false;
-
 			goto end;
 		}
 	}
@@ -101,15 +101,11 @@ start:
 	while (connected && running) {
 		if (FT_GetOverlappedResult(handle, &overlap[curr_buf], &read[curr_buf], true) == FT_IO_INCOMPLETE && FT_AbortPipe(handle, BULK_IN)) {
 			printf("[%s] Abort failed.\n", NAME);
-			connected = false;
-
 			goto end;
 		}
 
 		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], RGB_FRAME_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
-			connected = false;
-
 			goto end;
 		}
 
@@ -128,10 +124,9 @@ end:
 	if (FT_Close(handle)) {
 		printf("[%s] Close failed.\n", NAME);
 	}
-	
-	if (running) {
-		goto start;
-	}
+
+	connected = false;
+	goto start;
 }
 
 void map(UCHAR *p_in, UCHAR *p_out) {
