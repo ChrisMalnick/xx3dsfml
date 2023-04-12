@@ -173,7 +173,7 @@ void render() {
 
 	UCHAR out_buf[RGBA_FRAME_SIZE];
 
-	sf::RenderWindow win(sf::VideoMode(win_width, win_height), std::string(NAME));
+	sf::RenderWindow win(sf::VideoMode(win_width, win_height), NAME);
 	sf::View view(sf::FloatRect(0, 0, win_width, win_height));
 
 	sf::RectangleShape top_rect(sf::Vector2f(TOP_HEIGHT, TOP_WIDTH));
