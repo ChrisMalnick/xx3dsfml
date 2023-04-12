@@ -41,11 +41,7 @@ The following is a list of controls currently available in the xx3dsfml program:
 
 #### Notes
 
-This software, while perfectly usable, is currently incomplete and has three noticeable shortcomings as of this writing:
-
-1. There is no audio support yet. Audio can be captured directly via the AUX port on the New 3DSXL over a line level input.
-2. The frame rate is effectively halved. The New 3DSXL's refresh rate is 60Hz, but this software runs mostly at 30 fps. This is mostly noticeable on the main menu which actually renders at 60 fps. Most games, however, run below 60 fps (likey at 30 fps) even though the New 3DSXL is refreshing the screen at 60Hz. This means that any software running on the New 3DSXL at 30 fps or less will not be impacted by this shortcoming.
-3. There are occasional error frames. These are very far and few between but do occur from time to time. These will either appear as misaligned or miscolored frames.
+This software currently lacks audio support and may never get it unfortunately (audio can be captured directly from the AUX port on the New 3DSXL over a line level input though thankfully). The reason for this is that the audio is included at the end of the frame data, but in order to reach it, a feature of the D3XX driver that isn't available outside of Windows likely needs to be used. Future updates could potentially fix this issue.
 
 #### Media
 

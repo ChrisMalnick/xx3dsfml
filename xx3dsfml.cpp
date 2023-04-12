@@ -5,11 +5,15 @@
 
 #include <libftd3xx/ftd3xx.h>
 #include <SFML/Graphics.hpp>
+#include <thread>
 
 #define NAME "xx3dsfml"
-
 #define PRODUCT "N3DSXL"
+
+#define BULK_OUT 0x02
 #define BULK_IN 0x82
+
+#define FIFO_CHANNEL 0
 
 #define CAP_WIDTH 240
 #define CAP_HEIGHT 720
@@ -18,6 +22,8 @@
 
 #define RGB_FRAME_SIZE (CAP_RES * 3)
 #define RGBA_FRAME_SIZE (CAP_RES * 4)
+
+#define BUF_COUNT 8
 
 #define TOP_WIDTH 400
 #define TOP_HEIGHT 240
@@ -30,104 +36,102 @@
 #define DELTA_WIDTH (TOP_WIDTH - BOT_WIDTH)
 #define DELTA_RES (DELTA_WIDTH * TOP_HEIGHT)
 
+#define FRAMERATE 60
+
 FT_HANDLE handle;
 bool connected = false;
+bool running = true;
 
-void open() {
+UCHAR in_buf[BUF_COUNT][RGB_FRAME_SIZE];
+int curr_buf = 0;
+
+bool open() {
 	if (connected) {
-		return;
+		return false;
 	}
 
 	if (FT_Create(const_cast<char*>(PRODUCT), FT_OPEN_BY_DESCRIPTION, &handle)) {
 		printf("[%s] Open failed.\n", NAME);
-		return;
+		return false;
 	}
 
 	if (FT_SetStreamPipe(handle, false, false, BULK_IN, RGB_FRAME_SIZE)) {
 		printf("[%s] Stream failed.\n", NAME);
-		return;
+		return false;
 	}
 
-	connected = true;
+	UCHAR buf[8] = {0x40, 0x00, 0x00, 0x00};
+	ULONG written = 0;
+
+	if (FT_WritePipe(handle, BULK_OUT, buf, 8, &written, 0)) {
+		printf("[%s] Write failed.\n", NAME);
+		return false;
+	}
+
+	return true;
 }
 
-void close() {
-	if (!connected) {
-		return;
+void capture() {
+	ULONG read[BUF_COUNT];
+	OVERLAPPED overlap[BUF_COUNT];
+
+start:
+	while (!connected);
+
+	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
+		if (FT_InitializeOverlapped(handle, &overlap[curr_buf])) {
+			printf("[%s] Initialize failed.\n", NAME);
+			connected = false;
+
+			goto end;
+		}
+	}
+
+	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
+		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], RGB_FRAME_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
+			printf("[%s] Read failed.\n", NAME);
+			connected = false;
+
+			goto end;
+		}
+	}
+
+	curr_buf = 0;
+
+	while (connected && running) {
+		if (FT_GetOverlappedResult(handle, &overlap[curr_buf], &read[curr_buf], true) == FT_IO_INCOMPLETE && FT_AbortPipe(handle, BULK_IN)) {
+			printf("[%s] Abort failed.\n", NAME);
+			connected = false;
+
+			goto end;
+		}
+
+		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], RGB_FRAME_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
+			printf("[%s] Read failed.\n", NAME);
+			connected = false;
+
+			goto end;
+		}
+
+		if (++curr_buf == BUF_COUNT) {
+			curr_buf = 0;
+		}
+	}
+
+end:
+	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
+		if (FT_ReleaseOverlapped(handle, &overlap[curr_buf])) {
+			printf("[%s] Release failed.\n", NAME);
+		}
 	}
 
 	if (FT_Close(handle)) {
 		printf("[%s] Close failed.\n", NAME);
-		return;
 	}
-
-	connected = false;
-}
-
-bool capture(UCHAR *p_buf) {
-	ULONG read = 0;
-
-	while (read != RGB_FRAME_SIZE) {
-		if (FT_ReadPipe(handle, BULK_IN, p_buf, RGB_FRAME_SIZE, &read, 0)) {
-			printf("[%s] Read failed.\n", NAME);
-			close();
-
-			return false;
-		}
-
-		if (read == 2) {
-			return false;
-		}
+	
+	if (running) {
+		goto start;
 	}
-
-	return true;
-}
-
-bool captureEx(UCHAR *p_buf) {
-	ULONG read = 0;
-
-	while (read != RGB_FRAME_SIZE) {
-		if (FT_ReadPipeEx(handle, 0, p_buf, RGB_FRAME_SIZE, &read, 0)) {
-			printf("[%s] Read failed.\n", NAME);
-			close();
-
-			return false;
-		}
-
-		if (read == 2) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-bool captureAsync(UCHAR *p_buf) {
-	OVERLAPPED overlap;
-	ULONG read = 0;
-
-	while (read != RGB_FRAME_SIZE) {
-		FT_InitializeOverlapped(handle, &overlap);
-
-		if (FT_ReadPipeAsync(handle, 0, p_buf, RGB_FRAME_SIZE, &read, &overlap) != FT_IO_PENDING) {
-			printf("[%s] Read failed.\n", NAME);
-			close();
-
-			return false;
-		}
-
-		if (read == 2) {
-			return false;
-		}
-
-		if (FT_GetOverlappedResult(handle, &overlap, &read, true) == FT_IO_INCOMPLETE && FT_AbortPipe(handle, BULK_IN)) {
-			printf("[%s] Abort failed.\n", NAME);
-		}
-
-		FT_ReleaseOverlapped(handle, &overlap);
-	}
-
-	return true;
 }
 
 void map(UCHAR *p_in, UCHAR *p_out) {
@@ -160,18 +164,16 @@ void map(UCHAR *p_in, UCHAR *p_out) {
 }
 
 void render() {
+	std::thread thread(capture);
+
 	int win_width = TOP_WIDTH;
 	int win_height = TOP_HEIGHT + BOT_HEIGHT;
 
 	int scale = 1;
 
-	int frame = 0;
-	int fps = 0;
-
-	UCHAR in_buf[RGB_FRAME_SIZE];
 	UCHAR out_buf[RGBA_FRAME_SIZE];
 
-	sf::RenderWindow win(sf::VideoMode(win_width, win_height), std::string(NAME) + " [0 fps]");
+	sf::RenderWindow win(sf::VideoMode(win_width, win_height), std::string(NAME));
 	sf::View view(sf::FloatRect(0, 0, win_width, win_height));
 
 	sf::RectangleShape top_rect(sf::Vector2f(TOP_HEIGHT, TOP_WIDTH));
@@ -183,7 +185,9 @@ void render() {
 	sf::RenderTexture out_tex;
 
 	sf::Event event;
-	sf::Clock clock;
+
+	win.setFramerateLimit(FRAMERATE + FRAMERATE / 2);
+	win.setKeyRepeatEnabled(false);
 
 	win.setView(view);
 
@@ -217,7 +221,7 @@ void render() {
 			case sf::Event::KeyPressed:
 				switch (event.key.code) {
 				case sf::Keyboard::Num1:
-					connected ? close() : open();
+					connected = open();
 					break;
 
 				case sf::Keyboard::Num2:
@@ -264,8 +268,8 @@ void render() {
 		win.clear();
 		win.setSize(sf::Vector2u(win_width * scale, win_height * scale));
 
-		if (connected && captureEx(in_buf)) {
-			map(in_buf, out_buf);
+		if (connected) {
+			map(in_buf[(curr_buf == 0 ? BUF_COUNT : curr_buf) - 1], out_buf);
 
 			in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
 
@@ -277,27 +281,18 @@ void render() {
 			out_tex.display();
 
 			win.draw(out_rect);
-
-			fps = 1 / clock.restart().asSeconds();
-		}
-
-		else {
-			clock.restart();
-			fps = 0;
 		}
 
 		win.display();
-
-		if (++frame % 30 == 0) {
-			win.setTitle(std::string(NAME) + " [" + std::to_string(fps) + " fps]");
-		}
 	}
+
+	running = false;
+	thread.join();
 }
 
 int main() {
-	open();
+	connected = open();
 	render();
-	close();
 
 	return 0;
 }
