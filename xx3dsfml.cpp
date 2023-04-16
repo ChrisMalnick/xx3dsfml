@@ -24,6 +24,7 @@
 #define RGBA_FRAME_SIZE (CAP_RES * 4)
 
 #define BUF_COUNT 8
+#define BUF_SIZE (RGB_FRAME_SIZE)
 
 #define TOP_WIDTH 400
 #define TOP_HEIGHT 240
@@ -42,7 +43,7 @@ FT_HANDLE handle;
 bool connected = false;
 bool running = true;
 
-UCHAR in_buf[BUF_COUNT][RGB_FRAME_SIZE];
+UCHAR in_buf[BUF_COUNT][BUF_SIZE];
 int curr_buf = 0;
 
 bool open() {
@@ -55,15 +56,15 @@ bool open() {
 		return false;
 	}
 
-	if (FT_SetStreamPipe(handle, false, false, BULK_IN, RGB_FRAME_SIZE)) {
+	if (FT_SetStreamPipe(handle, false, false, BULK_IN, BUF_SIZE)) {
 		printf("[%s] Stream failed.\n", NAME);
 		return false;
 	}
 
-	UCHAR buf[8] = {0x40, 0x00, 0x00, 0x00};
+	UCHAR buf[4] = {0x40, 0x00, 0x00, 0x00};
 	ULONG written = 0;
 
-	if (FT_WritePipe(handle, BULK_OUT, buf, 8, &written, 0)) {
+	if (FT_WritePipe(handle, BULK_OUT, buf, 4, &written, 0)) {
 		printf("[%s] Write failed.\n", NAME);
 		return false;
 	}
@@ -90,7 +91,7 @@ start:
 	}
 
 	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
-		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], RGB_FRAME_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
+		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], BUF_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
 			goto end;
 		}
@@ -104,7 +105,7 @@ start:
 			goto end;
 		}
 
-		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], RGB_FRAME_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
+		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], BUF_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
 			goto end;
 		}
