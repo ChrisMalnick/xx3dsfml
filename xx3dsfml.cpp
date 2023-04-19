@@ -56,16 +56,16 @@ bool open() {
 		return false;
 	}
 
-	if (FT_SetStreamPipe(handle, false, false, BULK_IN, BUF_SIZE)) {
-		printf("[%s] Stream failed.\n", NAME);
-		return false;
-	}
-
 	UCHAR buf[4] = {0x40, 0x00, 0x00, 0x00};
 	ULONG written = 0;
 
 	if (FT_WritePipe(handle, BULK_OUT, buf, 4, &written, 0)) {
 		printf("[%s] Write failed.\n", NAME);
+		return false;
+	}
+
+	if (FT_SetStreamPipe(handle, false, false, BULK_IN, BUF_SIZE)) {
+		printf("[%s] Stream failed.\n", NAME);
 		return false;
 	}
 
