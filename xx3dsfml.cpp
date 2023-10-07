@@ -53,6 +53,8 @@
 FT_HANDLE handle;
 bool connected = false;
 bool running = true;
+bool already_ask_audio = false;
+bool disconnect_and_connect = false;
 
 UCHAR in_buf[BUF_COUNT][BUF_SIZE];
 int curr_buf = 0;
@@ -70,6 +72,10 @@ bool handle_open(){
 }
 
 bool ask_for_audio(){
+	if(already_ask_audio){
+		return true;
+	}
+	
 	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
 	ULONG written = 0;
 
@@ -99,6 +105,8 @@ bool ask_for_audio(){
 		return false;
 	}
 
+	already_ask_audio = true;
+
 	return true;
 }
 
@@ -121,7 +129,9 @@ bool initialize(){
 }
 
 bool open() {
-	if (connected || handle != 0) {
+	disconnect_and_connect = false;
+
+	if (connected || handle != NULL) {
 		return false;
 	}
 
@@ -146,6 +156,14 @@ bool open() {
 
 	if (!ask_for_audio()) {
 		printf("[%s] Ask for audio failed.\n", NAME);
+
+		if (FT_Close(handle)) {
+			printf("[%s] Close failed.\n", NAME);
+		}
+
+		disconnect_and_connect = true;
+		handle = NULL;
+
 		return false;
 	}
 	
@@ -163,7 +181,12 @@ void capture() {
 
 start:
 	while (!connected) {
-		printf("[%s] waiting.\n", NAME);
+		if(disconnect_and_connect){
+			printf("[%s] please disconnect and connect cable, then press 1.\n", NAME);
+		}else{
+			printf("[%s] waiting.\n", NAME);
+		}
+		
 		if (!running) {
 			return;
 		}
@@ -208,7 +231,7 @@ end:
 			printf("[%s] Release failed.\n", NAME);
 		}
 	}
-
+	
 	if(FT_ClearStreamPipe(handle, false, false, BULK_IN)){
 		printf("[%s] Clear failed.\n", NAME);
 	}
@@ -219,8 +242,8 @@ end:
 
 	printf("[%s] Connection closed.\n", NAME);
 	connected = false;
-	sleep(2);
-	handle = 0;
+	sleep(5); // need to find a better way to avoid segmantation fault when multiple on/off
+	handle = NULL;
 	goto start;
 }
 
