@@ -6,12 +6,18 @@
 #include <libftd3xx/ftd3xx.h>
 #include <SFML/Graphics.hpp>
 #include <thread>
+#include <unistd.h> 
+#include <iostream>
+
+#define WINDOWS 1
 
 #define NAME "xx3dsfml"
-#define PRODUCT "N3DSXL"
+#define NUM_PRODUCTS 2
+#define PRODUCTS (const char*[]){"N3DSXL", "N3DSXL.2"}
 
 #define BULK_OUT 0x02
 #define BULK_IN 0x82
+#define TBULK_IN 0x86
 
 #define FIFO_CHANNEL 0
 
@@ -23,8 +29,11 @@
 #define RGB_FRAME_SIZE (CAP_RES * 3)
 #define RGBA_FRAME_SIZE (CAP_RES * 4)
 
+#define AUDIO_BUF_SIZE 2188
+#define AUDIO_SAMPLE_RATE 32728
+
 #define BUF_COUNT 8
-#define BUF_SIZE (RGB_FRAME_SIZE)
+#define BUF_SIZE (RGB_FRAME_SIZE + AUDIO_BUF_SIZE)
 
 #define TOP_WIDTH 400
 #define TOP_HEIGHT 240
@@ -39,6 +48,8 @@
 
 #define FRAMERATE 60
 
+#define HIBYTE(w) ((uint8_t)(((uint16_t)(w) >> 8)))
+
 FT_HANDLE handle;
 bool connected = false;
 bool running = true;
@@ -46,20 +57,57 @@ bool running = true;
 UCHAR in_buf[BUF_COUNT][BUF_SIZE];
 int curr_buf = 0;
 
-bool open() {
-	if (connected) {
+bool handle_open(){
+	for (int i=0; i < NUM_PRODUCTS; i++) 
+    {
+		char* product = const_cast<char*>(PRODUCTS[i]);
+		if (FT_Create(product, FT_OPEN_BY_DESCRIPTION, &handle) == FT_OK) {
+			printf("[%s] Create for %s successed.\n", NAME, PRODUCTS[i]);
+			return true;
+		}
+	}
+	return false;
+}
+
+bool ask_for_audio(){
+	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
+	ULONG written = 0;
+
+	if (FT_WritePipe(handle, BULK_OUT, buf, 4, &written, 0)) {
+		FT_AbortPipe(handle, BULK_IN);
+		printf("[%s] Write 1 failed.\n", NAME);
+		return false;
+	}
+	
+	if (FT_AbortPipe(handle, BULK_OUT)) {
+		printf("[%s] Abort failed.\n", NAME);
+		return false;
+	}
+	
+	UCHAR buf2[4] = {0x05, 0x98, 0x00, 0x00};
+	ULONG returned = 0;
+
+	if (FT_WritePipe(handle, BULK_OUT, buf2, 4, &returned, 0)) {
+		FT_AbortPipe(handle, BULK_IN);
+		printf("[%s] Write 2 failed.\n", NAME);
 		return false;
 	}
 
-	if (FT_Create(const_cast<char*>(PRODUCT), FT_OPEN_BY_DESCRIPTION, &handle)) {
-		printf("[%s] Create failed.\n", NAME);
+	if (FT_ReadPipe(handle, BULK_IN, buf2, 4, &returned, 0)) {
+		FT_AbortPipe(handle, BULK_IN);
+		printf("[%s] Read failed.\n", NAME);
 		return false;
 	}
 
+	return true;
+}
+
+bool initialize(){
 	UCHAR buf[4] = {0x40, 0x00, 0x00, 0x00};
 	ULONG written = 0;
 
 	if (FT_WritePipe(handle, BULK_OUT, buf, 4, &written, 0)) {
+		FT_AbortPipe(handle, BULK_IN);
 		printf("[%s] Write failed.\n", NAME);
 		return false;
 	}
@@ -72,24 +120,63 @@ bool open() {
 	return true;
 }
 
+bool open() {
+	if (connected || handle != 0) {
+		return false;
+	}
+
+	if (!handle_open()) {
+		printf("[%s] Create failed.\n", NAME);
+		return false;
+	}
+
+	if(FT_SetPipeTimeout(handle, BULK_OUT, 200)){
+		printf("[%s] Timeout failed.\n", NAME);
+		return false;
+	}
+
+	if(FT_SetPipeTimeout(handle, BULK_IN, 80)){
+		printf("[%s] Timeout failed.\n", NAME);
+		return false;
+	}
+
+	if(FT_ClearStreamPipe(handle, true, true, 0)){
+		printf("[%s] Clear failed.\n", NAME);
+	}
+
+	if (!ask_for_audio()) {
+		printf("[%s] Ask for audio failed.\n", NAME);
+		return false;
+	}
+	
+	if(!initialize()){
+		printf("[%s] Initialize failed.\n", NAME);
+		return false;
+	}
+
+	return true;
+}
+
 void capture() {
 	ULONG read[BUF_COUNT];
 	OVERLAPPED overlap[BUF_COUNT];
 
 start:
 	while (!connected) {
+		printf("[%s] waiting.\n", NAME);
 		if (!running) {
 			return;
 		}
+		sleep(1);
 	}
-
+	
 	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
 		if (FT_InitializeOverlapped(handle, &overlap[curr_buf])) {
 			printf("[%s] Initialize failed.\n", NAME);
 			goto end;
 		}
 	}
-
+	
 	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
 		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], BUF_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
@@ -122,11 +209,18 @@ end:
 		}
 	}
 
+	if(FT_ClearStreamPipe(handle, false, false, BULK_IN)){
+		printf("[%s] Clear failed.\n", NAME);
+	}
+
 	if (FT_Close(handle)) {
 		printf("[%s] Close failed.\n", NAME);
 	}
 
+	printf("[%s] Connection closed.\n", NAME);
 	connected = false;
+	sleep(2);
+	handle = 0;
 	goto start;
 }
 
@@ -165,33 +259,65 @@ void render() {
 	int win_width = TOP_WIDTH;
 	int win_height = TOP_HEIGHT + BOT_HEIGHT;
 
+	int wint_width = TOP_WIDTH;
+	int wint_height = TOP_HEIGHT;
+
+	int winb_width = BOT_WIDTH;
+	int winb_height = BOT_HEIGHT;
+
 	int scale = 1;
 
 	UCHAR out_buf[RGBA_FRAME_SIZE];
+	sf::RenderWindow* win[2];
+	if(WINDOWS == 2){
+		win[0] = new sf::RenderWindow(sf::VideoMode(wint_width, wint_height), NAME);
+		win[1] = new sf::RenderWindow(sf::VideoMode(winb_width, winb_height), NAME);
+	}else{
+		win[0] = new sf::RenderWindow(sf::VideoMode(win_width, win_height), NAME);
+	}
 
-	sf::RenderWindow win(sf::VideoMode(win_width, win_height), NAME);
-	sf::View view(sf::FloatRect(0, 0, win_width, win_height));
-
-	sf::RectangleShape top_rect(sf::Vector2f(TOP_HEIGHT, TOP_WIDTH));
-	sf::RectangleShape bot_rect(sf::Vector2f(BOT_HEIGHT, BOT_WIDTH));
+	sf::RectangleShape top_rect(sf::Vector2f(wint_height, wint_width));
+	sf::RectangleShape bot_rect(sf::Vector2f(winb_height, winb_width));
 
 	sf::RectangleShape out_rect(sf::Vector2f(win_width, win_height));
 
 	sf::Texture in_tex;
 	sf::RenderTexture out_tex;
 
-	sf::Event event;
+	sf::Event event;	
 
-	win.setFramerateLimit(FRAMERATE + FRAMERATE / 2);
-	win.setKeyRepeatEnabled(false);
+	win[0]->setFramerateLimit(FRAMERATE + FRAMERATE / 2);
+	win[0]->setKeyRepeatEnabled(false);
+	
+	if(WINDOWS == 2){
+		win[1]->setFramerateLimit(FRAMERATE + FRAMERATE / 2);
+		win[1]->setKeyRepeatEnabled(false);
 
-	win.setView(view);
+		sf::View viewt(sf::FloatRect(0, 0, wint_width, wint_height));
+		win[0]->setView(viewt);
 
+		sf::View viewb(sf::FloatRect(0, 0, winb_width, winb_height));
+		win[1]->setView(viewb);
+		
+		win[0]->setSize(sf::Vector2u(wint_width * scale, wint_height * scale));
+		win[1]->setSize(sf::Vector2u(winb_width * scale, winb_height * scale));
+	}else{
+		sf::View view(sf::FloatRect(0, 0, win_width, win_height));
+		win[0]->setView(view);
+		win[0]->setSize(sf::Vector2u(win_width * scale, win_height * scale));
+	}
+
+	top_rect.setOrigin(wint_height / 2, wint_width / 2);
+	top_rect.setPosition(wint_width / 2, wint_height / 2);
 	top_rect.setRotation(-90);
-	top_rect.setPosition(0, TOP_HEIGHT);
 
+	bot_rect.setOrigin(winb_height / 2, winb_width / 2);
+	if(WINDOWS == 2){
+		bot_rect.setPosition(winb_width / 2, winb_height / 2);
+	}else{
+		bot_rect.setPosition(win_width / 2, TOP_HEIGHT + BOT_HEIGHT - (winb_height / 2));
+	}
 	bot_rect.setRotation(-90);
-	bot_rect.setPosition(DELTA_WIDTH / 2, TOP_HEIGHT + BOT_HEIGHT);
 
 	out_rect.setOrigin(win_width / 2, win_height / 2);
 	out_rect.setPosition(win_width / 2, win_height / 2);
@@ -207,81 +333,147 @@ void render() {
 
 	out_rect.setTexture(&out_tex.getTexture());
 
-	while (win.isOpen()) {
-		while (win.pollEvent(event)) {
-			switch (event.type) {
-			case sf::Event::Closed:
-				win.close();
-				break;
-
-			case sf::Event::KeyPressed:
-				switch (event.key.code) {
-				case sf::Keyboard::Num1:
-					connected = open();
+	while (win[0]->isOpen()) {
+		try {
+			while (win[0]->pollEvent(event)) {
+				switch (event.type) {
+				case sf::Event::Closed:
+					win[0]->close();
+					if(WINDOWS == 2){
+						win[1]->close();
+					}
 					break;
 
-				case sf::Keyboard::Num2:
-					out_tex.setSmooth(!out_tex.isSmooth());
-					break;
+				case sf::Event::KeyPressed:
+					switch (event.key.code) {
+					case sf::Keyboard::Num1:
+						connected = open();
+						break;
 
-				case sf::Keyboard::Num3:
-					scale -= scale == 1 ? 0 : 1;
-					break;
+					case sf::Keyboard::Num2:
+						out_tex.setSmooth(!out_tex.isSmooth());
+						break;
 
-				case sf::Keyboard::Num4:
-					scale += scale == 4 ? 0 : 1;
-					break;
+					case sf::Keyboard::Num3:
+						scale -= scale == 1 ? 0 : 1;
+						if(WINDOWS == 2){
+							win[0]->setSize(sf::Vector2u(wint_width * scale, wint_height * scale));
+							win[1]->setSize(sf::Vector2u(winb_width * scale, winb_height * scale));
+						}else{
+							win[0]->setSize(sf::Vector2u(win_width * scale, win_height * scale));
+						}
+						break;
 
-				case sf::Keyboard::Num5:
-					std::swap(win_width, win_height);
+					case sf::Keyboard::Num4:
+						scale += scale == 4 ? 0 : 1;
+						if(WINDOWS == 2){
+							win[0]->setSize(sf::Vector2u(wint_width * scale, wint_height * scale));
+							win[1]->setSize(sf::Vector2u(winb_width * scale, winb_height * scale));
+						}else{
+							win[0]->setSize(sf::Vector2u(win_width * scale, win_height * scale));
+						}
+						break;
 
-					out_rect.setSize(sf::Vector2f(win_width, win_height));
-					out_rect.setOrigin(win_width / 2, win_height / 2);
-					out_rect.rotate(-90);
+					case sf::Keyboard::Num5:
+						if(WINDOWS == 2){
+							std::swap(wint_width, wint_height);
+							std::swap(winb_width, winb_height);
 
-					break;
+							top_rect.setSize(sf::Vector2f(wint_height, wint_width));
+							top_rect.setOrigin(wint_height / 2, wint_width / 2);
+							top_rect.rotate(-90);
 
-				case sf::Keyboard::Num6:
-					std::swap(win_width, win_height);
+							bot_rect.setSize(sf::Vector2f(winb_height, winb_width));
+							bot_rect.setOrigin(winb_height / 2, winb_width / 2);
+							bot_rect.rotate(-90);
 
-					out_rect.setSize(sf::Vector2f(win_width, win_height));
-					out_rect.setOrigin(win_width / 2, win_height / 2);
-					out_rect.rotate(90);
+							win[0]->setSize(sf::Vector2u(wint_width * scale, wint_height * scale));
+							win[1]->setSize(sf::Vector2u(winb_width * scale, winb_height * scale));
+						}else{
+							std::swap(win_width, win_height);
+
+							out_rect.setSize(sf::Vector2f(win_width, win_height));
+							out_rect.setOrigin(win_width / 2, win_height / 2);
+							out_rect.rotate(-90);
+
+							win[0]->setSize(sf::Vector2u(win_width * scale, win_height * scale));
+						}
+
+						break;
+
+					case sf::Keyboard::Num6:
+						if(WINDOWS == 2){
+							std::swap(wint_width, wint_height);
+							std::swap(winb_width, winb_height);
+
+							top_rect.setSize(sf::Vector2f(wint_height, wint_width));
+							top_rect.setOrigin(wint_height / 2, wint_width / 2);
+							top_rect.rotate(90);
+
+							bot_rect.setSize(sf::Vector2f(winb_height, winb_width));
+							bot_rect.setOrigin(winb_height / 2, winb_width / 2);
+							bot_rect.rotate(90);
+
+							win[0]->setSize(sf::Vector2u(wint_width * scale, wint_height * scale));
+							win[1]->setSize(sf::Vector2u(winb_width * scale, winb_height * scale));
+						}else{
+							std::swap(win_width, win_height);
+
+							out_rect.setSize(sf::Vector2f(win_width, win_height));
+							out_rect.setOrigin(win_width / 2, win_height / 2);
+							out_rect.rotate(90);
+
+							win[0]->setSize(sf::Vector2u(win_width * scale, win_height * scale));
+						}
+
+						break;
+
+					default:
+						break;
+					}
 
 					break;
 
 				default:
 					break;
 				}
-
-				break;
-
-			default:
-				break;
 			}
+
+			win[0]->clear();
+			if(WINDOWS == 2){
+				win[1]->clear();
+			}
+
+			if (connected) {
+				int idx = (curr_buf == 0 ? BUF_COUNT : curr_buf) - 1;
+				map(in_buf[idx], out_buf);
+
+				in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
+
+				out_tex.clear();
+
+				out_tex.draw(top_rect);
+				out_tex.draw(bot_rect);
+
+				out_tex.display();
+
+				if(WINDOWS == 2){
+					win[0]->draw(top_rect);
+					win[1]->draw(bot_rect);
+				}else{
+					win[0]->draw(out_rect);
+				}
+			}
+
+			win[0]->display();
+			if(WINDOWS == 2){
+				win[1]->display();
+			}
+		}catch(...){
+			printf("[%s] Exception.\n", NAME);
 		}
-
-		win.clear();
-		win.setSize(sf::Vector2u(win_width * scale, win_height * scale));
-
-		if (connected) {
-			map(in_buf[(curr_buf == 0 ? BUF_COUNT : curr_buf) - 1], out_buf);
-
-			in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
-
-			out_tex.clear();
-
-			out_tex.draw(top_rect);
-			out_tex.draw(bot_rect);
-
-			out_tex.display();
-
-			win.draw(out_rect);
-		}
-
-		win.display();
 	}
-
+	
 	running = false;
 	thread.join();
 }

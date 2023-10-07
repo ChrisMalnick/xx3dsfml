@@ -24,6 +24,12 @@ Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile 
 1. make:	This will create the executable which can be executed via the ./xx3dsfml command.
 2. make clean:	This will remove all files (including the executable) created by the above command.
 
+#### Window modes
+
+Currently support single window and split window to achieve this behavior just change the code before make
+#define WINDOWS 1 // for single view
+#define WINDOWS 2 // for splir view
+
 #### Controls
 
 *Note: All of the following numeric controls are accomplished via the Number Row and not the Numeric Keypad.*
@@ -38,6 +44,8 @@ The following is a list of controls currently available in the xx3dsfml program:
 - 4 key: Increments the scaling. 4x is the maximum.
 - 5 key: Rotates the window 90 degrees counterclockwise.
 - 6 key: Rotates the window 90 degrees clockwise.
+
+When you are in 2 window mode you should input Keys on top Screen
 
 #### Notes
 
