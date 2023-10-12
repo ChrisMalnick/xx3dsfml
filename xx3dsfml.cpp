@@ -5,11 +5,14 @@
 
 #include <libftd3xx/ftd3xx.h>
 #include <SFML/Graphics.hpp>
+#include <SFML/Audio.hpp>
 #include <thread>
 #include <unistd.h> 
 #include <iostream>
+#include <queue>
+#include <vector>
 
-#define WINDOWS 1
+#define WINDOWS 2
 
 #define NAME "xx3dsfml"
 #define NUM_PRODUCTS 2
@@ -30,6 +33,7 @@
 #define RGBA_FRAME_SIZE (CAP_RES * 4)
 
 #define AUDIO_BUF_SIZE 2188
+#define AUDIO_CHANNELS 2
 #define AUDIO_SAMPLE_RATE 32728
 
 #define BUF_COUNT 8
@@ -59,6 +63,68 @@ bool disconnect_and_connect = false;
 UCHAR in_buf[BUF_COUNT][BUF_SIZE];
 int curr_buf = 0;
 
+typedef std::vector<sf::Int16> IntVector;
+class N3DSAudio : public sf::SoundStream
+{
+public:
+	N3DSAudio(){
+		initialize(AUDIO_CHANNELS, AUDIO_SAMPLE_RATE);
+	} 
+
+	void queue(IntVector samples){
+		m_bmux.lock();
+		if(m_buff.size() < BUF_COUNT)
+			m_buff.push(samples);
+
+		m_bmux.unlock();
+	}
+private:
+	sf::Mutex m_bmux;
+	std::queue<IntVector> m_buff;
+
+	size_t m_sampleRate;
+
+	virtual bool onGetData(Chunk& data)
+    {
+        m_bmux.lock();
+		if(m_buff.size()<1)
+		{
+			m_bmux.unlock();
+			return true;
+		}
+
+		IntVector bu = m_buff.front();
+		m_buff.pop();
+
+		m_bmux.unlock();
+
+
+		size_t bfs=bu.size();
+		sf::Int16* bf=new sf::Int16[bfs]; 
+
+		for(size_t i=0;i<bfs;++i)
+			bf[i]=bu[i];
+
+		
+		data.samples   = bf;
+		data.sampleCount = bfs;
+
+		return true;
+    }
+
+    virtual void onSeek(sf::Time timeOffset)
+    {
+        // no op
+    }
+	/*
+	virtual void onLoop()
+	{
+		// no loop
+		return -1;
+	}
+	*/
+};
+
 bool handle_open(){
 	for (int i=0; i < NUM_PRODUCTS; i++) 
     {
@@ -75,7 +141,7 @@ bool ask_for_audio(){
 	if(already_ask_audio){
 		return true;
 	}
-	
+
 	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
 	ULONG written = 0;
 
@@ -169,6 +235,8 @@ bool open() {
 	
 	if(!initialize()){
 		printf("[%s] Initialize failed.\n", NAME);
+		
+
 		return false;
 	}
 
@@ -186,7 +254,7 @@ start:
 		}else{
 			printf("[%s] waiting.\n", NAME);
 		}
-		
+
 		if (!running) {
 			return;
 		}
@@ -231,7 +299,7 @@ end:
 			printf("[%s] Release failed.\n", NAME);
 		}
 	}
-	
+
 	if(FT_ClearStreamPipe(handle, false, false, BULK_IN)){
 		printf("[%s] Clear failed.\n", NAME);
 	}
@@ -244,6 +312,7 @@ end:
 	connected = false;
 	sleep(5); // need to find a better way to avoid segmantation fault when multiple on/off
 	handle = NULL;
+
 	goto start;
 }
 
@@ -273,6 +342,20 @@ void map(UCHAR *p_in, UCHAR *p_out) {
 
 			++k;
 		}
+	}
+}
+
+void audio(UCHAR *p_in, N3DSAudio *soundStream) {
+	IntVector sample;
+	for (size_t i=RGB_FRAME_SIZE;i<BUF_SIZE; i=i+2) {
+		sf::Int16 note = (p_in[i+1] << 8) | p_in[i];
+		sample.push_back(note);
+	}
+	if(sample.size()> 0){
+		soundStream->queue(sample);
+		
+		if(soundStream->getStatus() != sf::SoundSource::Playing)
+			soundStream->play();
 	}
 }
 
@@ -308,6 +391,8 @@ void render() {
 	sf::RenderTexture out_tex;
 
 	sf::Event event;	
+
+	N3DSAudio *audioStream = new N3DSAudio();
 
 	win[0]->setFramerateLimit(FRAMERATE + FRAMERATE / 2);
 	win[0]->setKeyRepeatEnabled(false);
@@ -470,6 +555,7 @@ void render() {
 			if (connected) {
 				int idx = (curr_buf == 0 ? BUF_COUNT : curr_buf) - 1;
 				map(in_buf[idx], out_buf);
+				audio(in_buf[idx], audioStream);
 
 				in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
 
