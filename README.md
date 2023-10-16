@@ -28,7 +28,7 @@ Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile 
 
 Currently support single window and split window to achieve this behavior just change the code before make
 #define WINDOWS 1 // for single view
-#define WINDOWS 2 // for splir view
+#define WINDOWS 2 // for split view
 
 #### Controls
 
@@ -54,3 +54,5 @@ This software currently lacks audio support as I'm unable to get the capture car
 #### Media
 
 ![xx3dsfml](xx3dsfml.png "xx3dsfml")
+
+![xx3dsfml2](xx3dsfml2.png "xx3dsfml2")
