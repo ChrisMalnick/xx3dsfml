@@ -32,12 +32,12 @@
 #define RGB_FRAME_SIZE (CAP_RES * 3)
 #define RGBA_FRAME_SIZE (CAP_RES * 4)
 
-#define AUDIO_BUF_SIZE 2192
+#define EXTRA_BUF_SIZE 7168
 #define AUDIO_CHANNELS 2
 #define AUDIO_SAMPLE_RATE 32728
 
 #define BUF_COUNT 8
-#define BUF_SIZE (RGB_FRAME_SIZE + AUDIO_BUF_SIZE)
+#define BUF_SIZE (RGB_FRAME_SIZE + EXTRA_BUF_SIZE)
 
 #define TOP_WIDTH 400
 #define TOP_HEIGHT 240
@@ -71,19 +71,16 @@ public:
 		setProcessingInterval(sf::milliseconds(0));
 	} 
 
-	void queue(IntVector samples, size_t seed){
+	void queue(IntVector samples){
 		m_bmux.lock();
-		if(seed != last_seed && m_buff.size() <= BUF_COUNT * 10){
+		if(m_buff.size() <= BUF_COUNT * 10){
 			m_buff.push(samples);
-			last_seed = seed;
 		}
 		m_bmux.unlock();
 	}
 private:
 	sf::Mutex m_bmux;
 	std::queue<IntVector> m_buff;
-	size_t last_seed;
-
 	size_t m_sampleRate;
 
 	virtual bool onGetData(Chunk& data){
@@ -276,7 +273,7 @@ start:
 		}
 
 		len_buf[curr_buf] = read[curr_buf];
-
+		
 		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], BUF_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
 			goto end;
@@ -345,11 +342,10 @@ void audio(UCHAR *p_in, ULONG end, N3DSAudio *soundStream) {
 	for (size_t i=RGB_FRAME_SIZE;i<end; i=i+2) {
 		sf::Int16 sound = (p_in[i+1] << 8) | p_in[i];
 		sample.push_back(sound);
-		seed ^= sound + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 	}
 	
 	if(sample.size()> 0){
-		soundStream->queue(sample, seed);
+		soundStream->queue(sample);
 		
 		if(soundStream->getStatus() != sf::SoundSource::Playing)
 			soundStream->play();
@@ -369,6 +365,7 @@ void render() {
 	int winb_height = BOT_HEIGHT;
 
 	int scale = 1;
+	int last_idx = -1;
 
 	UCHAR out_buf[RGBA_FRAME_SIZE];
 	sf::RenderWindow* win[2];
@@ -551,8 +548,11 @@ void render() {
 
 			if (connected) {
 				int idx = (curr_buf == 0 ? BUF_COUNT : curr_buf) - 1;
-				map(in_buf[idx], out_buf);
-				audio(in_buf[idx], len_buf[idx], audioStream);
+				if(last_idx != idx){
+					map(in_buf[idx], out_buf);
+					audio(in_buf[idx], len_buf[idx], audioStream);
+					last_idx = idx;
+				}
 
 				in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
 
