@@ -12,9 +12,11 @@
 #include <queue>
 #include <vector>
 
-#define WINDOWS 2
+#define WINDOWS 1
 
 #define NAME "xx3dsfml"
+#define TNAME "xx3dsfml - top"
+#define BNAME "xx3dsfml - bottom"
 #define NUM_PRODUCTS 2
 #define PRODUCTS (const char*[]){"N3DSXL", "N3DSXL.2"}
 
@@ -355,26 +357,17 @@ void audio(UCHAR *p_in, ULONG end, N3DSAudio *soundStream) {
 void render() {
 	std::thread thread(capture);
 
-	int win_width = TOP_WIDTH;
-	int win_height = TOP_HEIGHT + BOT_HEIGHT;
-
-	int wint_width = TOP_WIDTH;
-	int wint_height = TOP_HEIGHT;
-
-	int winb_width = BOT_WIDTH;
-	int winb_height = BOT_HEIGHT;
+	int win_width, win_height, wint_width, wint_height, winb_width, winb_height;
 
 	int scale = 1;
 	int last_idx = -1;
 
+	int windows = WINDOWS;
+
+	const char * name = NAME;
+
 	UCHAR out_buf[RGBA_FRAME_SIZE];
 	sf::RenderWindow* win[2];
-	if(WINDOWS == 2){
-		win[0] = new sf::RenderWindow(sf::VideoMode(wint_width, wint_height), NAME);
-		win[1] = new sf::RenderWindow(sf::VideoMode(winb_width, winb_height), NAME);
-	}else{
-		win[0] = new sf::RenderWindow(sf::VideoMode(win_width, win_height), NAME);
-	}
 
 	sf::RectangleShape top_rect(sf::Vector2f(wint_height, wint_width));
 	sf::RectangleShape bot_rect(sf::Vector2f(winb_height, winb_width));
@@ -388,10 +381,31 @@ void render() {
 
 	N3DSAudio *audioStream = new N3DSAudio();
 
+change:
+	win_width = TOP_WIDTH;
+	win_height = TOP_HEIGHT + BOT_HEIGHT;
+
+	wint_width = TOP_WIDTH;
+	wint_height = TOP_HEIGHT;
+
+	winb_width = BOT_WIDTH;
+	winb_height = BOT_HEIGHT;
+
+	top_rect.setRotation(0);
+	bot_rect.setRotation(0);
+	out_rect.setRotation(0);
+
+	if(windows == 2){
+		win[0] = new sf::RenderWindow(sf::VideoMode(wint_width, wint_height), TNAME);
+		win[1] = new sf::RenderWindow(sf::VideoMode(winb_width, winb_height), BNAME);
+	}else{
+		win[0] = new sf::RenderWindow(sf::VideoMode(win_width, win_height), NAME);
+	}
+
 	win[0]->setFramerateLimit(FRAMERATE + FRAMERATE / 2);
 	win[0]->setKeyRepeatEnabled(false);
 	
-	if(WINDOWS == 2){
+	if(windows == 2){
 		win[1]->setFramerateLimit(FRAMERATE + FRAMERATE / 2);
 		win[1]->setKeyRepeatEnabled(false);
 
@@ -409,18 +423,21 @@ void render() {
 		win[0]->setSize(sf::Vector2u(win_width * scale, win_height * scale));
 	}
 
+	top_rect.setSize(sf::Vector2f(wint_height, wint_width));
 	top_rect.setOrigin(wint_height / 2, wint_width / 2);
 	top_rect.setPosition(wint_width / 2, wint_height / 2);
 	top_rect.setRotation(-90);
 
+	bot_rect.setSize(sf::Vector2f(winb_height, winb_width));
 	bot_rect.setOrigin(winb_height / 2, winb_width / 2);
-	if(WINDOWS == 2){
+	if(windows == 2){
 		bot_rect.setPosition(winb_width / 2, winb_height / 2);
 	}else{
 		bot_rect.setPosition(win_width / 2, TOP_HEIGHT + BOT_HEIGHT - (winb_height / 2));
 	}
 	bot_rect.setRotation(-90);
 
+	out_rect.setSize(sf::Vector2f(win_width, win_height));
 	out_rect.setOrigin(win_width / 2, win_height / 2);
 	out_rect.setPosition(win_width / 2, win_height / 2);
 
@@ -441,7 +458,7 @@ void render() {
 				switch (event.type) {
 				case sf::Event::Closed:
 					win[0]->close();
-					if(WINDOWS == 2){
+					if(windows == 2){
 						win[1]->close();
 					}
 					break;
@@ -458,7 +475,7 @@ void render() {
 
 					case sf::Keyboard::Num3:
 						scale -= scale == 1 ? 0 : 1;
-						if(WINDOWS == 2){
+						if(windows == 2){
 							win[0]->setSize(sf::Vector2u(wint_width * scale, wint_height * scale));
 							win[1]->setSize(sf::Vector2u(winb_width * scale, winb_height * scale));
 						}else{
@@ -468,7 +485,7 @@ void render() {
 
 					case sf::Keyboard::Num4:
 						scale += scale == 4 ? 0 : 1;
-						if(WINDOWS == 2){
+						if(windows == 2){
 							win[0]->setSize(sf::Vector2u(wint_width * scale, wint_height * scale));
 							win[1]->setSize(sf::Vector2u(winb_width * scale, winb_height * scale));
 						}else{
@@ -477,7 +494,7 @@ void render() {
 						break;
 
 					case sf::Keyboard::Num5:
-						if(WINDOWS == 2){
+						if(windows == 2){
 							std::swap(wint_width, wint_height);
 							std::swap(winb_width, winb_height);
 
@@ -504,7 +521,7 @@ void render() {
 						break;
 
 					case sf::Keyboard::Num6:
-						if(WINDOWS == 2){
+						if(windows == 2){
 							std::swap(wint_width, wint_height);
 							std::swap(winb_width, winb_height);
 
@@ -530,6 +547,17 @@ void render() {
 
 						break;
 
+					case sf::Keyboard::Num0:
+						win[0]->close();
+						free(win[0]);
+						if(windows == 2){
+							win[1]->close();
+							free(win[1]);
+						}
+						windows = (windows == 2 ? 1 : 2);
+						goto change;
+						break;
+
 					default:
 						break;
 					}
@@ -542,7 +570,7 @@ void render() {
 			}
 
 			win[0]->clear();
-			if(WINDOWS == 2){
+			if(windows == 2){
 				win[1]->clear();
 			}
 
@@ -563,7 +591,7 @@ void render() {
 
 				out_tex.display();
 
-				if(WINDOWS == 2){
+				if(windows == 2){
 					win[0]->draw(top_rect);
 					win[1]->draw(bot_rect);
 				}else{
@@ -572,7 +600,7 @@ void render() {
 			}
 
 			win[0]->display();
-			if(WINDOWS == 2){
+			if(windows == 2){
 				win[1]->display();
 			}
 		}catch(...){

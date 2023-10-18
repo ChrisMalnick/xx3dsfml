@@ -26,7 +26,7 @@ Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile 
 
 #### Window modes
 
-Currently support single window and split window to achieve this behavior just change the code before make
+Currently support single window and split window to change this startup behavior just change the code before make
 #define WINDOWS 1 // for single view
 #define WINDOWS 2 // for split view
 
@@ -38,6 +38,7 @@ When the xx3dsfml program is executed, it will attempt to open a connected N3DSX
 
 The following is a list of controls currently available in the xx3dsfml program:
 
+- 0 key: Single view or Split views
 - 1 key: Opens a connected N3DSXL if not yet open, otherwise closes a connected N3DSXL if open.
 - 2 key: Toggles smoothing on/off. This is only noticeable at 2x scale or greater.
 - 3 key: Decrements the scaling. 1x is the minimum and the default.
