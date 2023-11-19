@@ -21,12 +21,12 @@ The SFML **development** package for **C++** also needs to be installed. C++ is 
 
 Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code, making any of the following changes beforehand if required:
 
-1. Change the **PRODUCT** macro to *N3DSXL.2* if using a revised board.
-2. Comment out the **setProcessingInterval()** call in the **Audio** class constructor if using a version of SFML < 2.6.0 (which doesn't actually impact the performance very much as it turns out).
+1. Change the **PRODUCT** macro to **N3DSXL.2** if using a revised board.
+2. Comment out the **setProcessingInterval()** call in the **Audio** class constructor if using a version of SFML earlier than 2.6.0 (which doesn't actually impact the performance very much as it turns out).
 
 A Makefile utilizing the Make utility and g++ compiler is provided with the following functionality:
 
-1. make:	This will create the executable which can be executed via the ./xx3dsfml command.
+1. make:	    This will create the executable which can be executed via the ./xx3dsfml command.
 2. make clean:	This will remove all files (including the executable) created by the above command.
 
 #### Controls
@@ -51,7 +51,7 @@ The following is a list of controls currently available in the xx3dsfml program:
 
 #### Notes
 
-Unfortunately, the audio playback via SFML appears to be a bottleneck as far as I can tell. The audio is being captured at a rate that outpaces the playback which results in the amount of queued samples increasing over time. This means that the audio is gradually becoming out of sync with the video, despite the fact that playback is streamed in a separate thread. As a compromise, I decided to outright omit a sample periodically when the queued sample count exceeds 3. This provides a good balance of reducing the amount of omitted samples while keeping the audio reasonably in sync with the video. I may consider switching to a different audio playback solution in the future, but for now, the application is more than serviceable in its current state. That being said, this is still a work in progress, and more general features and revisions may be released periodically as well.
+Unfortunately, the audio playback via SFML appears to be a bottleneck as far as I can tell. The audio is being captured at a rate that outpaces the playback which results in the amount of queued samples increasing over time. This means that the audio is gradually becoming out of sync with the video, despite the fact that playback is streamed in a separate thread. As a compromise, I decided to outright omit a sample periodically when the queued sample count exceeds 3. This provides a good balance of reducing the amount of omitted samples while keeping the audio reasonably in sync with the video. I may consider switching to a different audio playback solution in the future, but for now, the application is more than serviceable in its current state. That being said, this is still a work in progress, and more general features and revisions may also be released.
 
 #### Media
 
