@@ -44,14 +44,14 @@ The following is a list of controls currently available in the xx3dsfml program:
 - 5 key: Rotates the window 90 degrees counterclockwise.
 - 6 key: Rotates the window 90 degrees clockwise.
 - 0 key: Toggles mute on/off. Off is the default.
-- - key: Decrements the volume by 5 units. 0 is the minimum.
+- \- key: Decrements the volume by 5 units. 0 is the minimum.
 - = key: Increments the volume by 5 units. 100 is the maximum.
 
 *Note: The volume is set to 50 by default and is independent of the actual volume level set with the physical slider on the console.*
 
 #### Notes
 
-Unfortunately, the audio playback via SFML appears to be a bottleneck as far as I can tell. The audio is being captured at a rate that outpaces the playback which results in the amount of queued samples increasing over time. This means that the audio is gradually becoming out of sync with the video, despite the fact that playback is streamed in a separate thread. As a compromise, I decided to outright omit a sample periodically when the queued sample count exceeds 3. This provides a good balance of reducing the amount of omitted samples while keeping the audio reasonably in sync with the video. I may consider switching to a different audio plackback solution in the future, but for now, the application is more than serviceable in its current state. That being said, this is still a work in progress, and more general features and revisions may be released periodically as well.
+Unfortunately, the audio playback via SFML appears to be a bottleneck as far as I can tell. The audio is being captured at a rate that outpaces the playback which results in the amount of queued samples increasing over time. This means that the audio is gradually becoming out of sync with the video, despite the fact that playback is streamed in a separate thread. As a compromise, I decided to outright omit a sample periodically when the queued sample count exceeds 3. This provides a good balance of reducing the amount of omitted samples while keeping the audio reasonably in sync with the video. I may consider switching to a different audio playback solution in the future, but for now, the application is more than serviceable in its current state. That being said, this is still a work in progress, and more general features and revisions may be released periodically as well.
 
 #### Media
 
