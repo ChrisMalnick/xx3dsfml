@@ -4,8 +4,12 @@
  */
 
 #include <libftd3xx/ftd3xx.h>
+
+#include <SFML/Audio.hpp>
 #include <SFML/Graphics.hpp>
+
 #include <thread>
+#include <queue>
 
 #define NAME "xx3dsfml"
 #define PRODUCT "N3DSXL"
@@ -20,11 +24,17 @@
 
 #define CAP_RES (CAP_WIDTH * CAP_HEIGHT)
 
-#define RGB_FRAME_SIZE (CAP_RES * 3)
-#define RGBA_FRAME_SIZE (CAP_RES * 4)
+#define FRAME_SIZE_RGB (CAP_RES * 3)
+#define FRAME_SIZE_RGBA (CAP_RES * 4)
+
+#define AUDIO_CHANNELS 2
+#define SAMPLE_RATE 32728
+
+#define SAMPLE_SIZE_8 2192
+#define SAMPLE_SIZE_16 (SAMPLE_SIZE_8 / 2)
 
 #define BUF_COUNT 8
-#define BUF_SIZE (RGB_FRAME_SIZE)
+#define BUF_SIZE (FRAME_SIZE_RGB + SAMPLE_SIZE_8)
 
 #define TOP_WIDTH 400
 #define TOP_HEIGHT 240
@@ -38,13 +48,45 @@
 #define DELTA_RES (DELTA_WIDTH * TOP_HEIGHT)
 
 #define FRAMERATE 60
+#define AUDIO_LATENCY 4
 
 FT_HANDLE handle;
+
 bool connected = false;
 bool running = true;
 
-UCHAR in_buf[BUF_COUNT][BUF_SIZE];
-int curr_buf = 0;
+UCHAR cap_buf[BUF_COUNT][BUF_SIZE];
+ULONG read[BUF_COUNT];
+
+int curr_in, curr_out = 0;
+
+std::queue<sf::Int16*> samples;
+std::queue<std::size_t> sample_sizes;
+
+class Audio : public sf::SoundStream {
+public:
+	Audio() {
+		sf::SoundStream::initialize(AUDIO_CHANNELS, SAMPLE_RATE);
+		sf::SoundStream::setProcessingInterval(sf::milliseconds(0));
+	}
+
+private:
+	bool onGetData(sf::SoundStream::Chunk &data) override {
+		if (samples.empty()) {
+			return false;
+		}
+
+		data.samples = samples.front();
+		samples.pop();
+
+		data.sampleCount = sample_sizes.front();
+		sample_sizes.pop();
+
+		return true;
+	}
+
+	void onSeek(sf::Time timeOffset) override {}
+};
 
 bool open() {
 	if (connected) {
@@ -56,8 +98,15 @@ bool open() {
 		return false;
 	}
 
-	UCHAR buf[4] = {0x40, 0x00, 0x00, 0x00};
+	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
 	ULONG written = 0;
+
+	if (FT_WritePipe(handle, BULK_OUT, buf, 4, &written, 0)) {
+		printf("[%s] Write failed.\n", NAME);
+		return false;
+	}
+
+	buf[1] = 0x00;
 
 	if (FT_WritePipe(handle, BULK_OUT, buf, 4, &written, 0)) {
 		printf("[%s] Write failed.\n", NAME);
@@ -73,7 +122,6 @@ bool open() {
 }
 
 void capture() {
-	ULONG read[BUF_COUNT];
 	OVERLAPPED overlap[BUF_COUNT];
 
 start:
@@ -83,41 +131,41 @@ start:
 		}
 	}
 
-	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
-		if (FT_InitializeOverlapped(handle, &overlap[curr_buf])) {
+	for (curr_in = 0; curr_in < BUF_COUNT; ++curr_in) {
+		if (FT_InitializeOverlapped(handle, &overlap[curr_in])) {
 			printf("[%s] Initialize failed.\n", NAME);
 			goto end;
 		}
 	}
 
-	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
-		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], BUF_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
+	for (curr_in = 0; curr_in < BUF_COUNT; ++curr_in) {
+		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, cap_buf[curr_in], BUF_SIZE, &read[curr_in], &overlap[curr_in]) != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
 			goto end;
 		}
 	}
 
-	curr_buf = 0;
+	curr_in = 0;
 
 	while (connected && running) {
-		if (FT_GetOverlappedResult(handle, &overlap[curr_buf], &read[curr_buf], true) == FT_IO_INCOMPLETE && FT_AbortPipe(handle, BULK_IN)) {
+		if (FT_GetOverlappedResult(handle, &overlap[curr_in], &read[curr_in], true) == FT_IO_INCOMPLETE && FT_AbortPipe(handle, BULK_IN)) {
 			printf("[%s] Abort failed.\n", NAME);
 			goto end;
 		}
 
-		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, in_buf[curr_buf], BUF_SIZE, &read[curr_buf], &overlap[curr_buf]) != FT_IO_PENDING) {
+		if (FT_ReadPipeAsync(handle, FIFO_CHANNEL, cap_buf[curr_in], BUF_SIZE, &read[curr_in], &overlap[curr_in]) != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
 			goto end;
 		}
 
-		if (++curr_buf == BUF_COUNT) {
-			curr_buf = 0;
+		if (++curr_in == BUF_COUNT) {
+			curr_in = 0;
 		}
 	}
 
 end:
-	for (curr_buf = 0; curr_buf < BUF_COUNT; ++curr_buf) {
-		if (FT_ReleaseOverlapped(handle, &overlap[curr_buf])) {
+	for (curr_in = 0; curr_in < BUF_COUNT; ++curr_in) {
+		if (FT_ReleaseOverlapped(handle, &overlap[curr_in])) {
 			printf("[%s] Release failed.\n", NAME);
 		}
 	}
@@ -159,15 +207,27 @@ void map(UCHAR *p_in, UCHAR *p_out) {
 	}
 }
 
+void map(UCHAR *p_in, sf::Int16 *p_out) {
+	for (int i = 0; i < SAMPLE_SIZE_16; ++i) {
+		p_out[i] = p_in[i * 2 + 1] << 8 | p_in[i * 2];
+	}
+}
+
 void render() {
 	std::thread thread(capture);
+
+	UCHAR vid_buf[FRAME_SIZE_RGBA];
+	sf::Int16 aud_buf[BUF_COUNT][SAMPLE_SIZE_16];
+
+	int prev_out = 0;
 
 	int win_width = TOP_WIDTH;
 	int win_height = TOP_HEIGHT + BOT_HEIGHT;
 
 	int scale = 1;
 
-	UCHAR out_buf[RGBA_FRAME_SIZE];
+	float volume = 50.0f;
+	bool mute = false;
 
 	sf::RenderWindow win(sf::VideoMode(win_width, win_height), NAME);
 	sf::View view(sf::FloatRect(0, 0, win_width, win_height));
@@ -181,6 +241,8 @@ void render() {
 	sf::RenderTexture out_tex;
 
 	sf::Event event;
+
+	Audio audio;
 
 	win.setFramerateLimit(FRAMERATE + FRAMERATE / 2);
 	win.setKeyRepeatEnabled(false);
@@ -207,11 +269,15 @@ void render() {
 
 	out_rect.setTexture(&out_tex.getTexture());
 
+	audio.setVolume(volume);
+
 	while (win.isOpen()) {
 		while (win.pollEvent(event)) {
 			switch (event.type) {
 			case sf::Event::Closed:
 				win.close();
+				audio.stop();
+
 				break;
 
 			case sf::Event::KeyPressed:
@@ -250,6 +316,24 @@ void render() {
 
 					break;
 
+				case sf::Keyboard::Num0:
+					mute ^= true;
+					audio.setVolume(mute ? 0.0f : volume);
+
+					break;
+
+				case sf::Keyboard::Hyphen:
+					volume -= volume == 0.0f ? 0.0f : 5.0f;
+					audio.setVolume(volume);
+
+					break;
+
+				case sf::Keyboard::Equal:
+					volume += volume == 100.0f ? 0.0f : 5.0f;
+					audio.setVolume(volume);
+
+					break;
+
 				default:
 					break;
 				}
@@ -265,18 +349,35 @@ void render() {
 		win.setSize(sf::Vector2u(win_width * scale, win_height * scale));
 
 		if (connected) {
-			map(in_buf[(curr_buf == 0 ? BUF_COUNT : curr_buf) - 1], out_buf);
+			curr_out = (curr_in == 0 ? BUF_COUNT : curr_in) - 1;
 
-			in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
+			if (curr_out != prev_out) {
+				map(cap_buf[curr_out], vid_buf);
 
-			out_tex.clear();
+				in_tex.update(vid_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
 
-			out_tex.draw(top_rect);
-			out_tex.draw(bot_rect);
+				out_tex.clear();
 
-			out_tex.display();
+				out_tex.draw(top_rect);
+				out_tex.draw(bot_rect);
+
+				out_tex.display();
+
+				if (samples.size() < AUDIO_LATENCY) {
+					map(&cap_buf[curr_out][FRAME_SIZE_RGB], aud_buf[curr_out]);
+
+					samples.push(aud_buf[curr_out]);
+					sample_sizes.push((read[curr_out] - FRAME_SIZE_RGB) / 2);
+				}
+
+				prev_out = curr_out;
+			}
 
 			win.draw(out_rect);
+
+			if (audio.getStatus() != sf::SoundStream::Playing) {
+				audio.play();
+			}
 		}
 
 		win.display();
