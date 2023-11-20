@@ -19,10 +19,10 @@ The SFML **development** package for **C++** also needs to be installed. C++ is 
 
 #### Install
 
-Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code, making any of the following changes beforehand if required:
+Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code, making any of the following changes beforehand if necessary:
 
-1. Change the **PRODUCT** macro to **N3DSXL.2** if using a revised board.
-2. Comment out the **setProcessingInterval()** call in the **Audio** class constructor if using a version of SFML earlier than 2.6.0 (which doesn't actually impact the performance very much as it turns out).
+1. Change the **PRODUCT** macro to **N3DSXL.2** if using the latest board revision.
+2. Comment out the **setProcessingInterval** call in the **Audio** class constructor if using a version of SFML earlier than 2.6.0 (which doesn't actually impact the performance very much as it turns out).
 
 A Makefile utilizing the Make utility and g++ compiler is provided with the following functionality:
 
