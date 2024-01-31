@@ -50,6 +50,13 @@
 #define FRAMERATE 60
 #define AUDIO_LATENCY 4
 
+struct Sample {
+	Sample(sf::Int16 *bytes, std::size_t size) : bytes(bytes), size(size) {}
+
+	sf::Int16 *bytes;
+	std::size_t size;
+};
+
 FT_HANDLE handle;
 
 bool connected = false;
@@ -60,8 +67,7 @@ ULONG read[BUF_COUNT];
 
 int curr_in, curr_out = 0;
 
-std::queue<sf::Int16*> samples;
-std::queue<std::size_t> sample_sizes;
+std::queue<Sample> samples;
 
 class Audio : public sf::SoundStream {
 public:
@@ -76,11 +82,10 @@ private:
 			return false;
 		}
 
-		data.samples = samples.front();
-		samples.pop();
+		data.samples = samples.front().bytes;
+		data.sampleCount = samples.front().size;
 
-		data.sampleCount = sample_sizes.front();
-		sample_sizes.pop();
+		samples.pop();
 
 		return true;
 	}
@@ -226,7 +231,7 @@ void render() {
 
 	int scale = 1;
 
-	float volume = 50.0f;
+	float volume = 10.0f;
 	bool mute = false;
 
 	sf::RenderWindow win(sf::VideoMode(win_width, win_height), NAME);
@@ -365,9 +370,7 @@ void render() {
 
 				if (samples.size() < AUDIO_LATENCY) {
 					map(&cap_buf[curr_out][FRAME_SIZE_RGB], aud_buf[curr_out]);
-
-					samples.push(aud_buf[curr_out]);
-					sample_sizes.push((read[curr_out] - FRAME_SIZE_RGB) / 2);
+					samples.emplace(aud_buf[curr_out], (read[curr_out] - FRAME_SIZE_RGB) / 2);
 				}
 
 				prev_out = curr_out;
