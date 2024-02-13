@@ -4,7 +4,7 @@ xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscaptu
 
 #### Features
 
-- Lightweight, low latency, and minimalistic desgin that appears to run reasonably accurately and stably.
+- Lightweight, low latency, and minimalistic design that appears to run reasonably accurately and stably.
 - The ability to split the screens into separate windows or join them into a single window.
 - The ability to evenly and incrementally scale the windows independently of each other.
 - The ability to rotate the windows independently of each other to either side and even upside down!
