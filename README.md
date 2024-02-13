@@ -1,6 +1,17 @@
 # **xx3dsfml**
 
-xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscapture.com/) N3DSXL capture card written in C/C++.
+xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscapture.com/) N3DSXL capture board written in C/C++.
+
+#### Features
+
+- Lightweight, low latency, and minimalistic desgin that appears to run reasonably accurately and stably.
+- The ability to split the screens into separate windows or join them into a single window.
+- The ability to evenly and incrementally scale the windows independently of each other.
+- The ability to rotate the windows independently of each other to either side and even upside down!
+- The ability to crop the windows independently of each other for DS games, including the split bottom screen which just makes it a perfect 1:1 square!
+- The ability to blur the contents of the windows independently of each other.
+- Smooth, continuous volume controls with separate mute control.
+- A settings file that saves all of these controls individually which allows all three windows to have completely different configurations.
 
 #### Dependencies
 
@@ -19,41 +30,36 @@ The SFML **development** package for **C++** also needs to be installed. C++ is 
 
 #### Install
 
-Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code, making any of the following changes beforehand if necessary:
-
-1. Change the **PRODUCT** macro to **N3DSXL.2** if using the latest board revision.
-2. Comment out the **setProcessingInterval** call in the **Audio** class constructor if using a version of SFML earlier than 2.6.0 (which doesn't actually impact the performance very much as it turns out).
-
-A Makefile utilizing the Make utility and g++ compiler is provided with the following functionality:
+Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile utilizing the Make utility and g++ compiler is provided with the following functionality:
 
 1. make:	    This will create the executable which can be executed via the ./xx3dsfml command.
 2. make clean:	This will remove all files (including the executable) created by the above command.
 
 #### Controls
 
-*Note: All of the following numeric controls are accomplished via the Number Row and not the Numeric Keypad.*
+- S key: Switches between split mode and joint mode which splits the screens into separate windows or joins them into a single window respectively.
+- C key: Toggles cropping on/off for the focused window. This can be used to fill the screen when the console is in DS mode.
+- B key: Toggles blurring on/off for the focused window. This is only noticeable at 1.5x scale or greater.
+- \- key: Decrements the scaling by 0.5x for the focused window. 1.0x is the minimum.
+- = key: Increments the scaling by 0.5x for the focused window. 4.5x is the maximum.
+- [ key: Rotates the focused window 90 degrees counterclockwise.
+- ] key: Rotates the focused window 90 degrees clockwise.
+- M key: Toggles mute on/off.
+- , key: Decrements the volume by 5 units. 0 is the minimum.
+- . key: Increments the volume by 5 units. 100 is the maximum.
 
-When the xx3dsfml program is executed, it will attempt to open a connected N3DSXL for capture once at start. However, an N3DSXL can be connected at any time while the software is running but will require it to be manually opened using the 1 key in this case. Pressing the 1 key at any time while an N3DSXL is open will close it and vice versa. If an open N3DSXL is disconnected at any time while the software is running, the logical device will automatically close and should be reopened via the 1 key once reconnected.
+*Note: The volume is independent of the actual volume level set with the physical slider on the console.*
 
-The following is a list of controls currently available in the xx3dsfml program:
+#### Settings
 
-- 1 key: Opens a connected N3DSXL if not yet open, otherwise closes a connected N3DSXL if open.
-- 2 key: Toggles smoothing on/off. This is only noticeable at 2x scale or greater. Off is the default.
-- 3 key: Decrements the scaling. 1x is the minimum and the default.
-- 4 key: Increments the scaling. 4x is the maximum.
-- 5 key: Rotates the window 90 degrees counterclockwise.
-- 6 key: Rotates the window 90 degrees clockwise.
-- 0 key: Toggles mute on/off. Off is the default.
-- \- key: Decrements the volume by 5 units. 0 is the minimum.
-- = key: Increments the volume by 5 units. 100 is the maximum.
-
-*Note: The volume is set to 10 by default and is independent of the actual volume level set with the physical slider on the console.*
+An xx3dsfml.conf file is provided which contains default program settings for the above mentioned controls. These settings are loaded when the program is started and saved when the program is closed. Controls that target the individual windows are saved and loaded independently of each other, meaning that settings for the single window in joint mode as well as the separate windows in split mode are all individually stored in this file.
 
 #### Notes
 
-This might only be the case with my particular system, but there's an issue with the audio being captured at a rate that outpaces the playback which results in the amount of queued samples increasing over time. This means that the audio is gradually becoming increasingly out of sync with the video, despite the fact that playback is streamed in a separate thread. As a compromise, I decided to outright omit a sample periodically when the queued sample count exceeds 3. This provides a good balance of reducing the amount of omitted samples while keeping the audio reasonably in sync with the video. If this issue is actually just system dependent, then this compromise won't affect systems that aren't impacted by it since the queued sample count won't ever increase enough for a sample to be dropped in the first place. Even so, the application is more than serviceable in its current state. That being said, this is still a work in progress, and more general features and revisions may also be released in the future.
-
-Also, just to add, the latency in general is very low to the point that I've comfortably played out of an OBS preview that's capturing this software. The audio latency is virtually indistinguishable when listening to the audio output directly from this software while viewing the video feed through something like OBS. I've streamed multiple times now for hours on end with no issues outside of the occasional dropped audio sample which I find to be pretty insignificant. I actually experience the same audio latency issue with my upscaler and capture card which I find to be much more intrusive since I have to continually refresh the audio stream every time the latency becomes too noticeable. I honestly wish there was a way to periodically drop samples from audio sources in OBS just the same as I've done in my software here!
+- An N3DSXL must be connected when launching the program or else it will close immediately.
+- Disconnecting the N3DSXL while the program is running will cause it to close immediately.
+- Minimal audio artifacts can occur, albeit very infrequently, and the audio can vary slightly in latency. This is due to the 3DS's non-integer sample rate.
+- The Ofast g++ optimize flag has been added to the Makefile, so when compiling without it, be aware that optimizations may not occur unless explicitly specified.
 
 #### Media
 
