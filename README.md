@@ -7,11 +7,11 @@ xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscaptu
 - Lightweight, low latency, and minimalistic design that appears to run reasonably accurately and stably.
 - The ability to split the screens into separate windows or join them into a single window.
 - The ability to evenly and incrementally scale the windows independently of each other.
-- The ability to rotate the windows independently of each other to either side and even upside down!
-- The ability to crop the windows independently of each other for DS games, including the split bottom screen which just makes it a perfect 1:1 square!
+- The ability to rotate the windows independently of each other to either side and even upside down.
+- The ability to crop the windows independently of each other for DS games.
 - The ability to blur the contents of the windows independently of each other.
 - Smooth, continuous volume controls with separate mute control.
-- A settings file that saves all of these controls individually which allows all three windows to have completely different configurations.
+- A config file that saves all of these settings individually which allows all three windows to have completely different configurations.
 
 #### Dependencies
 
@@ -37,7 +37,7 @@ Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile 
 
 #### Controls
 
-- S key: Switches between split mode and joint mode which splits the screens into separate windows or joins them into a single window respectively.
+- S key: Swaps between split mode and joint mode which splits the screens into separate windows or joins them into a single window respectively.
 - C key: Toggles cropping on/off for the focused window. This can be used to fill the screen when the console is in DS mode.
 - B key: Toggles blurring on/off for the focused window. This is only noticeable at 1.5x scale or greater.
 - \- key: Decrements the scaling by 0.5x for the focused window. 1.0x is the minimum.
@@ -52,12 +52,12 @@ Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile 
 
 #### Settings
 
-An xx3dsfml.conf file is provided which contains default program settings for the above mentioned controls. These settings are loaded when the program is started and saved when the program is closed. Controls that target the individual windows are saved and loaded independently of each other, meaning that settings for the single window in joint mode as well as the separate windows in split mode are all individually stored in this file.
+A config file is provided which contains default program settings for the above mentioned controls. These settings are loaded when the program is started and saved when the program is closed. Controls that target the individual windows are saved and loaded independently of each other, meaning that settings for the single window in joint mode as well as the separate windows in split mode are all individually stored in this file.
 
 #### Notes
 
-- An N3DSXL must be connected when launching the program or else it will close immediately.
-- Disconnecting the N3DSXL while the program is running will cause it to close immediately.
+- An N3DSXL must be connected when launching the program or else it will close immediately. This doesn't apply to sleep mode.
+- Disconnecting the N3DSXL while the program is running will cause it to close immediately. This doesn't apply to sleep mode.
 - Minimal audio artifacts can occur, albeit very infrequently, and the audio can vary slightly in latency. This is due to the 3DS's non-integer sample rate.
 - The Ofast g++ optimize flag has been added to the Makefile, so when compiling without it, be aware that optimizations may not occur unless explicitly specified.
 

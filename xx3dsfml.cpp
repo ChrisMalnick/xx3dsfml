@@ -70,8 +70,7 @@ std::queue<Sample> samples;
 int curr_in = 0;
 bool running = true;
 
-bool split = true;
-bool swap = false;
+bool split, swap = false;
 
 int volume = 10;
 bool mute = false;
@@ -541,8 +540,8 @@ void render() {
 
 	input(&tb, &bb, &jb, &tc, &bc, &jc, &tr, &br, &jr, &ts, &bs, &js);
 
-	Screen top_screen(TOP_WIDTH, TOP_HEIGHT, 0, 0, tb, tc, tr, ts, NAME, split);
-	Screen bot_screen(BOT_WIDTH, BOT_HEIGHT, TOP_WIDTH, 0, bb, bc, br, bs, NAME, split);
+	Screen top_screen(TOP_WIDTH, TOP_HEIGHT, 0, 0, tb, tc, tr, ts, std::string(NAME) + "-top", split);
+	Screen bot_screen(BOT_WIDTH, BOT_HEIGHT, TOP_WIDTH, 0, bb, bc, br, bs, std::string(NAME) + "-bot", split);
 	Screen joint_screen(TOP_WIDTH, TOP_HEIGHT + BOT_HEIGHT, 0, 0, jb, jc, jr, js, NAME, !split);
 
 	if (!split) {
