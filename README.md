@@ -60,6 +60,7 @@ A config file is provided which contains default program settings for the above 
 - Disconnecting the N3DSXL while the program is running will cause it to close immediately. This doesn't apply to sleep mode.
 - Minimal audio artifacts can occur, albeit very infrequently, and the audio can vary slightly in latency. This is due to the 3DS's non-integer sample rate.
 - The Ofast g++ optimize flag has been added to the Makefile, so when compiling without it, be aware that optimizations may not occur unless explicitly specified.
+- The xx3dsfml.conf file must be kept in the same directory as the xx3dsfml executable, and the xx3dsfml executable must be executed from the directory where the xx3dsfml.conf file resides. This is because the config file is referenced relative to the executable, meaning that the config file cannot be found in either of these scenarios.
 
 #### Media
 
