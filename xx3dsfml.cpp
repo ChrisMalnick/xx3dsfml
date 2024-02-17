@@ -50,7 +50,7 @@
 #define BOT_HEIGHT 240
 
 #define DELTA_WIDTH (TOP_WIDTH - BOT_WIDTH)
-#define DELTA_RES (DELTA_WIDTH * TOP_HEIGHT)
+#define DELTA_RES (DELTA_WIDTH * BOT_HEIGHT)
 
 struct Sample {
 	Sample(sf::Int16 *bytes, std::size_t size) : bytes(bytes), size(size) {}

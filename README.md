@@ -61,6 +61,7 @@ A config file is provided which contains default program settings for the above 
 - Minimal audio artifacts can occur, albeit very infrequently, and the audio can vary slightly in latency. This is due to the 3DS's non-integer sample rate.
 - The Ofast g++ optimize flag has been added to the Makefile, so when compiling without it, be aware that optimizations may not occur unless explicitly specified.
 - The xx3dsfml.conf file must be kept in the same directory as the xx3dsfml executable, and the xx3dsfml executable must be executed from the directory where the xx3dsfml.conf file resides. This is because the config file is referenced relative to the executable, meaning that the config file cannot be found in either of these scenarios.
+- Connecting the device indirectly through a USB hub or docking station may prevent the software from creating a handle to it at startup. If any issues occur with an indirect connection, please consider connecting the device directly instead.
 
 #### Media
 
