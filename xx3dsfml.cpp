@@ -72,8 +72,14 @@ bool running = true;
 
 bool split, swap = false;
 
-int volume = 10;
+int volume = 50;
 bool mute = false;
+
+bool init = true;
+
+bool *p_tb, *p_bb, *p_jb, *p_tc, *p_bc, *p_jc;
+int *p_tr, *p_br, *p_jr;
+double *p_ts, *p_bs, *p_js;
 
 class Audio : public sf::SoundStream {
 public:
@@ -101,22 +107,137 @@ private:
 
 Audio audio;
 
+void load(std::string name) {
+	std::ifstream file(name);
+	std::string line;
+
+	while (std::getline(file, line)) {
+		std::istringstream kvp(line);
+		std::string key;
+
+		if (std::getline(kvp, key, '=')) {
+			std::string value;
+
+			if (std::getline(kvp, value)) {
+				if (key == "bot_blur") {
+					*p_bb = std::stoi(value);
+					continue;
+				}
+
+				if (key == "bot_crop") {
+					*p_bc = std::stoi(value);
+					continue;
+				}
+
+				if (key == "bot_rotation") {
+					*p_br = std::stoi(value);
+					continue;
+				}
+
+				if (key == "bot_scale") {
+					*p_bs = std::stod(value);
+					continue;
+				}
+
+				if (key == "joint_blur") {
+					*p_jb = std::stoi(value);
+					continue;
+				}
+
+				if (key == "joint_crop") {
+					*p_jc = std::stoi(value);
+					continue;
+				}
+
+				if (key == "joint_rotation") {
+					*p_jr = std::stoi(value);
+					continue;
+				}
+
+				if (key == "joint_scale") {
+					*p_js = std::stod(value);
+					continue;
+				}
+
+				if (key == "mute") {
+					mute = std::stoi(value);
+					continue;
+				}
+
+				if (key == "split") {
+					split = std::stoi(value);
+					continue;
+				}
+
+				if (key == "top_blur") {
+					*p_tb = std::stoi(value);
+					continue;
+				}
+
+				if (key == "top_crop") {
+					*p_tc = std::stoi(value);
+					continue;
+				}
+
+				if (key == "top_rotation") {
+					*p_tr = std::stoi(value);
+					continue;
+				}
+
+				if (key == "top_scale") {
+					*p_ts = std::stod(value);
+					continue;
+				}
+
+				if (key == "volume") {
+					volume = std::stoi(value);
+					continue;
+				}
+			}
+		}
+	}
+
+	file.close();
+}
+
+void save(std::string name) {
+	std::ofstream file(name);
+
+	file << "bot_blur=" << *p_bb << std::endl;
+	file << "bot_crop=" << *p_bc << std::endl;
+	file << "bot_rotation=" << *p_br << std::endl;
+	file << "bot_scale=" << *p_bs << (*p_bs - static_cast<int>(*p_bs) ? "" : ".0") << std::endl;
+	file << "joint_blur=" << *p_jb << std::endl;
+	file << "joint_crop=" << *p_jc << std::endl;
+	file << "joint_rotation=" << *p_jr << std::endl;
+	file << "joint_scale=" << *p_js << (*p_js - static_cast<int>(*p_js) ? "" : ".0") << std::endl;
+	file << "mute=" << mute << std::endl;
+	file << "split=" << split << std::endl;
+	file << "top_blur=" << *p_tb << std::endl;
+	file << "top_crop=" << *p_tc << std::endl;
+	file << "top_rotation=" << *p_tr << std::endl;
+	file << "top_scale=" << *p_ts << (*p_ts - static_cast<int>(*p_ts) ? "" : ".0") << std::endl;
+	file << "volume=" << volume << std::endl;
+
+	file.close();
+}
+
 class Screen {
 public:
-	bool c;
-	double s;
-
 	sf::RectangleShape in_rect;
-	sf::RenderTexture out_tex;
-
-	sf::View view;
 	sf::RenderWindow win;
 
-	Screen(int w, int h, int u, int v, bool b, bool c, int r, double s, std::string t, bool o) {
-		this->w = w;
-		this->h = h;
-		this->c = c;
-		this->s = s;
+	Screen(bool **pp_b, bool **pp_c, int **pp_r, double **pp_s) {
+		*pp_b = &this->b;
+		*pp_c = &this->c;
+		*pp_r = &this->r;
+		*pp_s = &this->s;
+	}
+
+	void build(int w, int h, int u, int v, std::string t, bool o) {
+		this->x = this->w = w;
+		this->y = this->h = h;
+
 		this->t = t;
 
 		this->in_rect.setTexture(&in_tex);
@@ -129,7 +250,6 @@ public:
 		this->in_rect.setPosition(w / 2, h / 2);
 
 		this->out_tex.create(w, h);
-		this->out_tex.setSmooth(b);
 
 		this->out_rect.setSize(sf::Vector2f(w, h));
 		this->out_rect.setTexture(&this->out_tex.getTexture());
@@ -139,16 +259,28 @@ public:
 		if (o) {
 			this->open();
 		}
+	}
 
-		if (r) {
-			if (r / 10 % 2) {
+	void reset() {
+		this->w = this->x;
+		this->h = this->y;
+
+		this->view.setRotation(0);
+
+		this->view.setSize(this->w, this->h);
+		this->win.setView(this->view);
+
+		this->out_tex.setSmooth(this->b);
+
+		if (this->r) {
+			if (this->r / 10 % 2) {
 				std::swap(this->w, this->h);
 			}
 
-			this->rotate(r);
+			this->rotate();
 		}
 
-		if (c) {
+		if (this->c) {
 			this->crop();
 		}
 	}
@@ -173,7 +305,7 @@ public:
 					break;
 
 				case sf::Keyboard::B:
-					out_tex.setSmooth(!out_tex.isSmooth());
+					out_tex.setSmooth(this->b ^= true);
 					break;
 
 				case sf::Keyboard::Hyphen:
@@ -186,13 +318,17 @@ public:
 
 				case sf::Keyboard::LBracket:
 					std::swap(this->w, this->h);
-					this->rotate(90);
+
+					this->r = ((this->r + 90) % 360 + 360) % 360;
+					this->rotate();
 
 					break;
 
 				case sf::Keyboard::RBracket:
 					std::swap(this->w, this->h);
-					this->rotate(-90);
+
+					this->r = ((this->r - 90) % 360 + 360) % 360;
+					this->rotate();
 
 					break;
 
@@ -206,6 +342,24 @@ public:
 
 				case sf::Keyboard::Period:
 					audio.setVolume(volume += volume == 100 ? 0 : 5);
+					break;
+
+				case sf::Keyboard::F1:
+				case sf::Keyboard::F2:
+				case sf::Keyboard::F3:
+				case sf::Keyboard::F4:
+					init = true;
+
+					load("./presets/layout" + std::to_string(event.key.code - sf::Keyboard::F1 + 1) + ".conf");
+					audio.setVolume(mute ? 0 : volume);
+
+					break;
+
+				case sf::Keyboard::F5:
+				case sf::Keyboard::F6:
+				case sf::Keyboard::F7:
+				case sf::Keyboard::F8:
+					save("./presets/layout" + std::to_string(event.key.code - sf::Keyboard::F5 + 1) + ".conf");
 					break;
 				}
 
@@ -244,10 +398,16 @@ public:
 	}
 
 private:
-	int w, h;
+	bool b, c;
+	int x, y, w, h, r;
+	double s;
+
 	std::string t;
 
+	sf::RenderTexture out_tex;
 	sf::RectangleShape out_rect;
+
+	sf::View view;
 	sf::Event event;
 
 	void open() {
@@ -255,15 +415,15 @@ private:
 		this->win.setView(this->view);
 	}
 
-	void rotate(int a) {
-		this->view.setRotation(((static_cast<int>(this->view.getRotation()) + a) % 360 + 360) % 360);
+	void rotate() {
+		this->view.setRotation(this->r);
 
 		this->view.setSize(this->w, this->h);
 		this->win.setView(this->view);
 	}
 
 	void crop() {
-		(static_cast<int>(this->view.getRotation()) / 10 % 2 ? this->h : this->w) += this->c ? -DELTA_WIDTH : DELTA_WIDTH;
+		(this->r / 10 % 2 ? this->h : this->w) += this->c ? -DELTA_WIDTH : DELTA_WIDTH;
 
 		this->view.setSize(this->w, this->h);
 		this->win.setView(this->view);
@@ -385,121 +545,6 @@ void map(UCHAR *p_in, sf::Int16 *p_out) {
 	}
 }
 
-void input(bool *p_tb, bool *p_bb, bool *p_jb, bool *p_tc, bool *p_bc, bool *p_jc, int *p_tr, int *p_br, int *p_jr, double *p_ts, double *p_bs, double *p_js) {
-	std::ifstream file("./" + std::string(NAME) + ".conf");
-	std::string line;
-
-	while (std::getline(file, line)) {
-		std::istringstream kvp(line);
-		std::string key;
-
-		if (std::getline(kvp, key, '=')) {
-			std::string value;
-
-			if (std::getline(kvp, value)) {
-				if (key == "bot_blur") {
-					*p_bb = std::stoi(value);
-					continue;
-				}
-
-				if (key == "bot_crop") {
-					*p_bc = std::stoi(value);
-					continue;
-				}
-
-				if (key == "bot_rotation") {
-					*p_br = std::stoi(value);
-					continue;
-				}
-
-				if (key == "bot_scale") {
-					*p_bs = std::stod(value);
-					continue;
-				}
-
-				if (key == "joint_blur") {
-					*p_jb = std::stoi(value);
-					continue;
-				}
-
-				if (key == "joint_crop") {
-					*p_jc = std::stoi(value);
-					continue;
-				}
-
-				if (key == "joint_rotation") {
-					*p_jr = std::stoi(value);
-					continue;
-				}
-
-				if (key == "joint_scale") {
-					*p_js = std::stod(value);
-					continue;
-				}
-
-				if (key == "mute") {
-					mute = std::stoi(value);
-					continue;
-				}
-
-				if (key == "split") {
-					split = std::stoi(value);
-					continue;
-				}
-
-				if (key == "top_blur") {
-					*p_tb = std::stoi(value);
-					continue;
-				}
-
-				if (key == "top_crop") {
-					*p_tc = std::stoi(value);
-					continue;
-				}
-
-				if (key == "top_rotation") {
-					*p_tr = std::stoi(value);
-					continue;
-				}
-
-				if (key == "top_scale") {
-					*p_ts = std::stod(value);
-					continue;
-				}
-
-				if (key == "volume") {
-					volume = std::stoi(value);
-					continue;
-				}
-			}
-		}
-	}
-
-	file.close();
-}
-
-void output(bool tb, bool bb, bool jb, bool tc, bool bc, bool jc, int tr, int br, int jr, double ts, double bs, double js) {
-	std::ofstream file("./" + std::string(NAME) + ".conf");
-
-	file << "bot_blur=" << bb << std::endl;
-	file << "bot_crop=" << bc << std::endl;
-	file << "bot_rotation=" << br << std::endl;
-	file << "bot_scale=" << bs << (bs - static_cast<int>(bs) ? "" : ".0") << std::endl;
-	file << "joint_blur=" << jb << std::endl;
-	file << "joint_crop=" << jc << std::endl;
-	file << "joint_rotation=" << jr << std::endl;
-	file << "joint_scale=" << js << (js - static_cast<int>(js) ? "" : ".0") << std::endl;
-	file << "mute=" << mute << std::endl;
-	file << "split=" << split << std::endl;
-	file << "top_blur=" << tb << std::endl;
-	file << "top_crop=" << tc << std::endl;
-	file << "top_rotation=" << tr << std::endl;
-	file << "top_scale=" << ts << (ts - static_cast<int>(ts) ? "" : ".0") << std::endl;
-	file << "volume=" << volume << std::endl;
-
-	file.close();
-}
-
 void playback() {
 	sf::Int16 out_buf[BUF_COUNT][SAMPLE_SIZE_16];
 	int curr_out, prev_out = 0;
@@ -534,15 +579,15 @@ void render() {
 
 	in_tex.create(CAP_WIDTH, CAP_HEIGHT);
 
-	bool tb, bb, jb, tc, bc, jc;
-	int tr, br, jr;
-	double ts, bs, js;
+	Screen top_screen(&p_tb, &p_tc, &p_tr, &p_ts);
+	Screen bot_screen(&p_bb, &p_bc, &p_br, &p_bs);
+	Screen joint_screen(&p_jb, &p_jc, &p_jr, &p_js);
 
-	input(&tb, &bb, &jb, &tc, &bc, &jc, &tr, &br, &jr, &ts, &bs, &js);
+	load("./" + std::string(NAME) + ".conf");
 
-	Screen top_screen(TOP_WIDTH, TOP_HEIGHT, 0, 0, tb, tc, tr, ts, std::string(NAME) + "-top", split);
-	Screen bot_screen(BOT_WIDTH, BOT_HEIGHT, TOP_WIDTH, 0, bb, bc, br, bs, std::string(NAME) + "-bot", split);
-	Screen joint_screen(TOP_WIDTH, TOP_HEIGHT + BOT_HEIGHT, 0, 0, jb, jc, jr, js, NAME, !split);
+	top_screen.build(TOP_WIDTH, TOP_HEIGHT, 0, 0, std::string(NAME) + "-top", split);
+	bot_screen.build(BOT_WIDTH, BOT_HEIGHT, TOP_WIDTH, 0, std::string(NAME) + "-bot", split);
+	joint_screen.build(TOP_WIDTH, TOP_HEIGHT + BOT_HEIGHT, 0, 0, NAME, !split);
 
 	if (!split) {
 		bot_screen.in_rect.move(DELTA_WIDTH / 2, TOP_HEIGHT);
@@ -560,6 +605,16 @@ void render() {
 		if (curr_out != prev_out) {
 			map(in_buf[curr_out], out_buf);
 			in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
+
+			if (init) {
+				top_screen.reset();
+				bot_screen.reset();
+				joint_screen.reset();
+
+				swap = !(joint_screen.win.isOpen() ^ split);
+
+				init = false;
+			}
 
 			if (swap) {
 				top_screen.toggle();
@@ -592,7 +647,7 @@ void render() {
 	bot_screen.win.close();
 	joint_screen.win.close();
 
-	output(top_screen.out_tex.isSmooth(), bot_screen.out_tex.isSmooth(), joint_screen.out_tex.isSmooth(), top_screen.c, bot_screen.c, joint_screen.c, top_screen.view.getRotation(), bot_screen.view.getRotation(), joint_screen.view.getRotation(), top_screen.s, bot_screen.s, joint_screen.s);
+	save("./" + std::string(NAME) + ".conf");
 }
 
 int main() {
