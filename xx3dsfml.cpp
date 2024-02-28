@@ -688,8 +688,8 @@ void map(UCHAR *p_in, sf::Int16 *p_out) {
 }
 
 void playback() {
-	sf::Int16 out_buf[BUF_COUNT][SAMPLE_SIZE_16];
-	int curr_out, prev_out = 0;
+	sf::Int16 out_buf[AUDIO_BUF_COUNT][SAMPLE_SIZE_16];
+	int curr_out, prev_out = BUF_COUNT - 1, audio_buf_counter = 0;
 
 	g_audio.setVolume(g_mute ? 0 : g_volume);
 
@@ -697,13 +697,15 @@ void playback() {
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
 		if (curr_out != prev_out) {
-			if (g_read[curr_out] > FRAME_SIZE_RGB && g_samples.size() < SAMPLE_LIMIT) {
-				map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[curr_out]);
-				g_samples.emplace(out_buf[curr_out], (g_read[curr_out] - FRAME_SIZE_RGB) / 2);
-			}
-
-			if (g_audio.getStatus() != sf::SoundStream::Playing) {
-				g_audio.play();
+			if (g_read[curr_out] > FRAME_SIZE_RGB) {
+				map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[audio_buf_counter]);
+				g_samples.emplace(out_buf[audio_buf_counter], (g_read[curr_out] - FRAME_SIZE_RGB) / 2);
+				
+				if(++audio_buf_counter >= AUDIO_BUF_COUNT)
+				    audio_buf_counter -= AUDIO_BUF_COUNT;
+			    if (g_audio.getStatus() != sf::SoundStream::Playing) {
+				    g_audio.play();
+			    }
 			}
 
 			prev_out = curr_out;
