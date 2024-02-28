@@ -35,6 +35,9 @@
 #define CAP_WIDTH HEIGHT_3DS
 #define CAP_HEIGHT (TOP_WIDTH_3DS + BOT_WIDTH_3DS)
 
+// This isn't precise, however we can use it...
+#define USB_FPS 60
+
 #define CAP_RES (CAP_WIDTH * CAP_HEIGHT)
 
 #define FRAME_SIZE_RGB (CAP_RES * 3)
@@ -43,6 +46,9 @@
 #define AUDIO_BUF_COUNT 7
 #define AUDIO_CHANNELS 2
 #define SAMPLE_RATE 32734
+#define AUDIO_LATENCY 3
+#define AUDIO_NUM_CHECKS 3
+#define AUDIO_CHECKS_PER_SECOND ((USB_FPS + (USB_FPS / 12)) * AUDIO_NUM_CHECKS)
 
 #define SAMPLE_SIZE_8 2192
 #define SAMPLE_SIZE_16 (SAMPLE_SIZE_8 / 2)
@@ -681,8 +687,8 @@ void map(UCHAR *p_in, UCHAR *p_out) {
 	}
 }
 
-void map(UCHAR *p_in, sf::Int16 *p_out) {
-	for (int i = 0; i < SAMPLE_SIZE_16; ++i) {
+void map(UCHAR *p_in, sf::Int16 *p_out, int n_samples) {
+	for (int i = 0; i < n_samples; ++i) {
 		p_out[i] = p_in[i * 2 + 1] << 8 | p_in[i * 2];
 	}
 }
@@ -690,28 +696,41 @@ void map(UCHAR *p_in, sf::Int16 *p_out) {
 void playback() {
 	sf::Int16 out_buf[AUDIO_BUF_COUNT][SAMPLE_SIZE_16];
 	int curr_out, prev_out = BUF_COUNT - 1, audio_buf_counter = 0;
+	bool samples_pushable = true;
 
 	g_audio.setVolume(g_mute ? 0 : g_volume);
+	volatile int num_sleeps = 0;
 
 	while (g_running) {
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
 		if (curr_out != prev_out) {
-			if (g_read[curr_out] > FRAME_SIZE_RGB) {
-				map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[audio_buf_counter]);
-				g_samples.emplace(out_buf[audio_buf_counter], (g_read[curr_out] - FRAME_SIZE_RGB) / 2);
-				
-				if(++audio_buf_counter >= AUDIO_BUF_COUNT)
-				    audio_buf_counter -= AUDIO_BUF_COUNT;
-			    if (g_audio.getStatus() != sf::SoundStream::Playing) {
-				    g_audio.play();
+		    volatile int loaded_samples = g_samples.size();
+		    if(loaded_samples >= AUDIO_LATENCY) {
+	            g_samples.pop();
+		    }
+		    if (g_read[curr_out] > FRAME_SIZE_RGB) {
+			    int n_samples = (g_read[curr_out] - FRAME_SIZE_RGB) / 2;
+	            if(n_samples > SAMPLE_SIZE_16) {
+		            n_samples = SAMPLE_SIZE_16;
+	            }
+			    map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[audio_buf_counter], n_samples);
+			    g_samples.emplace(out_buf[audio_buf_counter], n_samples);
+			    if(++audio_buf_counter == AUDIO_BUF_COUNT) {
+				    audio_buf_counter = 0;
 			    }
-			}
-
+    	    }
+			    
+	        if (g_audio.getStatus() != sf::SoundStream::Playing) {
+		        g_audio.play();
+    	    }
+		    num_sleeps = 0;
 			prev_out = curr_out;
 		}
-
-		sf::sleep(sf::milliseconds(0));
+		if(num_sleeps < AUDIO_NUM_CHECKS) {
+    		sf::sleep(sf::milliseconds(1000/AUDIO_CHECKS_PER_SECOND));
+    		++num_sleeps;
+		}
 	}
 
 	g_audio.stop();
