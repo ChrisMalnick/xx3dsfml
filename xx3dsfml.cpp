@@ -81,6 +81,13 @@ struct Sample {
 	std::size_t size;
 };
 
+struct ScreenInfo {
+	bool is_blurred;
+	Crop crop_kind;
+	int rotation;
+	double scaling;
+};
+
 FT_HANDLE g_handle;
 
 UCHAR g_in_buf[BUF_COUNT][BUF_SIZE];
@@ -97,18 +104,11 @@ bool g_connected = false;
 bool g_running = true;
 bool g_close_success = true;
 
-bool g_split, g_swap = false;
-bool g_init = true;
-
-bool g_skip_io = false, g_vsync = false;
+bool g_split = false;
+bool g_vsync = false;
 
 int g_volume = 50;
 bool g_mute = false;
-
-bool *gp_top_blur, *gp_bot_blur, *gp_joint_blur;
-Crop *gp_top_crop, *gp_bot_crop, *gp_joint_crop;
-int *gp_top_rotation, *gp_bot_rotation, *gp_joint_rotation;
-double *gp_top_scale, *gp_bot_scale, *gp_joint_scale;
 
 bool connect(bool);
 
@@ -159,7 +159,26 @@ private:
 	void onSeek(sf::Time timeOffset) override {}
 };
 
-bool load(std::string path, std::string name) {
+void load_info(std::string key, std::string value, std::string base, ScreenInfo &info) {
+	if(key == (base + "blur")) {
+		info.is_blurred = std::stoi(value);
+		return;
+	}
+	if(key == (base + "crop")) {
+		info.crop_kind = static_cast<Crop>(std::stoi(value));
+		return;
+	}
+	if(key == (base + "rotation")) {
+		info.rotation = std::stoi(value);
+		return;
+	}
+	if(key == (base + "scale")) {
+		info.scaling = std::stod(value);
+		return;
+	}
+}
+
+bool load(std::string path, std::string name, ScreenInfo &top_info, ScreenInfo &bottom_info, ScreenInfo &joint_info) {
 	std::ifstream file(path + name);
 	std::string line;
 
@@ -178,45 +197,10 @@ bool load(std::string path, std::string name) {
 			std::string value;
 
 			if (std::getline(kvp, value)) {
-				if (key == "bot_blur") {
-					*gp_bot_blur = std::stoi(value);
-					continue;
-				}
 
-				if (key == "bot_crop") {
-					*gp_bot_crop = static_cast<Crop>(std::stoi(value));
-					continue;
-				}
-
-				if (key == "bot_rotation") {
-					*gp_bot_rotation = std::stoi(value);
-					continue;
-				}
-
-				if (key == "bot_scale") {
-					*gp_bot_scale = std::stod(value);
-					continue;
-				}
-
-				if (key == "joint_blur") {
-					*gp_joint_blur = std::stoi(value);
-					continue;
-				}
-
-				if (key == "joint_crop") {
-					*gp_joint_crop = static_cast<Crop>(std::stoi(value));
-					continue;
-				}
-
-				if (key == "joint_rotation") {
-					*gp_joint_rotation = std::stoi(value);
-					continue;
-				}
-
-				if (key == "joint_scale") {
-					*gp_joint_scale = std::stod(value);
-					continue;
-				}
+				load_info(key, value, "bot_", bottom_info);
+				load_info(key, value, "joint_", joint_info);
+				load_info(key, value, "top_", top_info);
 
 				if (key == "mute") {
 					g_mute = std::stoi(value);
@@ -225,26 +209,6 @@ bool load(std::string path, std::string name) {
 
 				if (key == "split") {
 					g_split = std::stoi(value);
-					continue;
-				}
-
-				if (key == "top_blur") {
-					*gp_top_blur = std::stoi(value);
-					continue;
-				}
-
-				if (key == "top_crop") {
-					*gp_top_crop = static_cast<Crop>(std::stoi(value));
-					continue;
-				}
-
-				if (key == "top_rotation") {
-					*gp_top_rotation = std::stoi(value);
-					continue;
-				}
-
-				if (key == "top_scale") {
-					*gp_top_scale = std::stod(value);
 					continue;
 				}
 
@@ -260,10 +224,18 @@ bool load(std::string path, std::string name) {
 	return true;
 }
 
-void save(std::string path, std::string name) {
+std::string save_screen_info(std::string base, const ScreenInfo &info) {
+	std::string out = "";
+	out += base + "blur=" + std::to_string(info.is_blurred) + "\n";
+	out += base + "crop=" + std::to_string(info.crop_kind) + "\n";
+	out += base + "rotation=" + std::to_string(info.rotation) + "\n";
+	out += base + "scale=" + std::to_string(info.scaling) + "\n";
+	return out;
+}
+
+void save(std::string path, std::string name, const ScreenInfo &top_info, const ScreenInfo &bottom_info, const ScreenInfo &joint_info) {
 	std::filesystem::create_directories(path);
 	std::ofstream file(path + name);
-
 	if (!file.good()) {
 		printf("[%s] File \"%s\" save failed.\n", NAME, name.c_str());
 		file.close();
@@ -271,20 +243,11 @@ void save(std::string path, std::string name) {
 		return;
 	}
 
-	file << "bot_blur=" << *gp_bot_blur << std::endl;
-	file << "bot_crop=" << *gp_bot_crop << std::endl;
-	file << "bot_rotation=" << *gp_bot_rotation << std::endl;
-	file << "bot_scale=" << *gp_bot_scale << (*gp_bot_scale - static_cast<int>(*gp_bot_scale) ? "" : ".0") << std::endl;
-	file << "joint_blur=" << *gp_joint_blur << std::endl;
-	file << "joint_crop=" << *gp_joint_crop << std::endl;
-	file << "joint_rotation=" << *gp_joint_rotation << std::endl;
-	file << "joint_scale=" << *gp_joint_scale << (*gp_joint_scale - static_cast<int>(*gp_joint_scale) ? "" : ".0") << std::endl;
+	file << save_screen_info("bot_", bottom_info);
+	file << save_screen_info("joint_", joint_info);
+	file << save_screen_info("top_", top_info);
 	file << "mute=" << g_mute << std::endl;
 	file << "split=" << g_split << std::endl;
-	file << "top_blur=" << *gp_top_blur << std::endl;
-	file << "top_crop=" << *gp_top_crop << std::endl;
-	file << "top_rotation=" << *gp_top_rotation << std::endl;
-	file << "top_scale=" << *gp_top_scale << (*gp_top_scale - static_cast<int>(*gp_top_scale) ? "" : ".0") << std::endl;
 	file << "volume=" << g_volume << std::endl;
 
 	file.close();
@@ -292,25 +255,26 @@ void save(std::string path, std::string name) {
 
 class Screen {
 public:
-	enum Type { TOP, BOT, JOINT };
-
+	enum ScreenType { TOP, BOT, JOINT };
 	sf::RectangleShape m_in_rect;
 	sf::RenderWindow m_win;
+	ScreenInfo m_info;
 
-	Screen(bool **pp_blur, Crop **pp_crop, int **pp_rotation, double **pp_scale) {
-		*pp_blur = &this->m_blur;
-		*pp_crop = &this->m_crop;
-		*pp_rotation = &this->m_rotation;
-		*pp_scale = &this->m_scale;
+	Screen(Screen::ScreenType stype) {
+		this->m_stype = stype;
+		this->m_info.is_blurred = false;
+		this->m_info.crop_kind = DEFAULT_3DS;
+		this->m_info.rotation = 0;
+		this->m_info.scaling = 1.0;
+		this->m_prepare_save = 0;
+		this->m_prepare_load = 0;
 	}
 
-	void build(Screen::Type type, int u, int width, bool open) {
-		this->m_type = type;
-
+	void build(int width, int start_x, bool do_open) {
 		this->resize(TOP_WIDTH_3DS, this->height(HEIGHT_3DS));
 
 		this->m_in_rect.setTexture(&g_in_tex);
-		this->m_in_rect.setTextureRect(sf::IntRect(0, u, this->m_height, width));
+		this->m_in_rect.setTextureRect(sf::IntRect(0, start_x, this->m_height, width));
 
 		this->m_in_rect.setSize(sf::Vector2f(this->m_height, width));
 		this->m_in_rect.setOrigin(this->m_height / 2, width / 2);
@@ -325,7 +289,7 @@ public:
 
 		this->m_view.reset(sf::FloatRect(0, 0, width, this->m_height));
 
-		if (open) {
+		if (do_open) {
 			this->open();
 		}
 	}
@@ -338,17 +302,17 @@ public:
 		this->m_view.setSize(this->m_width, this->m_height);
 		this->m_win.setView(this->m_view);
 
-		this->m_out_tex.setSmooth(this->m_blur);
+		this->m_out_tex.setSmooth(this->m_info.is_blurred);
 
-		if (this->m_rotation) {
-			if (this->horizontal()) {
+		if (this->m_info.rotation) {
+			if (this->m_info.rotation / 10 % 2) {
 				std::swap(this->m_width, this->m_height);
 			}
 
 			this->rotate();
 		}
 
-		if (this->m_crop) {
+		if (this->m_info.crop_kind) {
 			this->crop();
 		}
 
@@ -358,17 +322,17 @@ public:
 	void move() {
 		this->m_in_rect.setPosition(this->m_in_rect.getOrigin().y, this->m_in_rect.getOrigin().x);
 
-		switch (this->m_type) {
-		case Screen::Type::TOP:
-			if (g_split && this->m_crop == Crop::NATIVE_DS) {
+		switch (this->m_stype) {
+		case Screen::ScreenType::TOP:
+			if (g_split && this->m_info.crop_kind == Crop::NATIVE_DS) {
 				this->m_in_rect.move(0, -DELTA_HEIGHT_DS / 2);
 			}
 
 			return;
 
-		case Screen::Type::BOT:
+		case Screen::ScreenType::BOT:
 			if (g_split) {
-				if (this->m_crop == Crop::NATIVE_DS) {
+				if (this->m_info.crop_kind == Crop::NATIVE_DS) {
 					this->m_in_rect.move(0, DELTA_HEIGHT_DS / 2);
 				}
 			}
@@ -395,29 +359,29 @@ public:
 					break;
 
 				case sf::Keyboard::S:
-					g_split ^= g_swap = true;
+					g_split = !g_split;
 					break;
 
 				case sf::Keyboard::B:
-					this->m_out_tex.setSmooth(this->m_blur ^= true);
+					this->m_out_tex.setSmooth(this->m_info.is_blurred = !this->m_info.is_blurred);
 					break;
 
 				case sf::Keyboard::Hyphen:
-					this->m_scale -= 0.5;
-					if (this->m_scale < 1.25)
-						this->m_scale = 1.0;
+					this->m_info.scaling -= 0.5;
+					if (this->m_info.scaling < 1.25)
+						this->m_info.scaling = 1.0;
 					break;
 
-				case sf::Keyboard::Num0:
-					this->m_scale += 0.5;
-					if (this->m_scale > 44.75)
-						this->m_scale = 45.0;
+				case sf::Keyboard::Equal:
+					this->m_info.scaling += 0.5;
+					if (this->m_info.scaling > 44.75)
+						this->m_info.scaling = 45.0;
 					break;
 
 				case sf::Keyboard::LBracket:
 					std::swap(this->m_width, this->m_height);
 
-					this->m_rotation = (this->m_rotation + 90) % 360;
+					this->m_info.rotation = (this->m_info.rotation + 90) % 360;
 					this->rotate();
 
 					break;
@@ -425,13 +389,13 @@ public:
 				case sf::Keyboard::RBracket:
 					std::swap(this->m_width, this->m_height);
 
-					this->m_rotation = ((this->m_rotation - 90) % 360 + 360) % 360;
+					this->m_info.rotation = (this->m_info.rotation + 270) % 360;
 					this->rotate();
 
 					break;
 
 				case sf::Keyboard::Apostrophe:
-					this->m_crop = static_cast<Crop>((this->m_crop + 1) % Crop::END);
+					this->m_info.crop_kind = static_cast<Crop>((this->m_info.crop_kind + 1) % Crop::END);
 
 					this->crop();
 					this->move();
@@ -439,7 +403,7 @@ public:
 					break;
 
 				case sf::Keyboard::Semicolon:
-					this->m_crop = static_cast<Crop>(((this->m_crop - 1) % Crop::END + Crop::END) % Crop::END);
+					this->m_info.crop_kind = static_cast<Crop>(((this->m_info.crop_kind - 1) % Crop::END + Crop::END) % Crop::END);
 
 					this->crop();
 					this->move();
@@ -468,20 +432,14 @@ public:
 				case sf::Keyboard::F2:
 				case sf::Keyboard::F3:
 				case sf::Keyboard::F4:
-					if(!g_skip_io) {
-						g_init = load(g_conf_dir + "/presets/", "layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf");
-					}
-
+					this->m_prepare_load = this->m_event.key.code - sf::Keyboard::F1 + 1;
 					break;
 
 				case sf::Keyboard::F5:
 				case sf::Keyboard::F6:
 				case sf::Keyboard::F7:
 				case sf::Keyboard::F8:
-					if (!g_skip_io) {
-						save(g_conf_dir + "/presets/", "layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F5 + 1) + ".conf");
-					}
-
+					this->m_prepare_save = this->m_event.key.code - sf::Keyboard::F5 + 1;
 					break;
 				}
 
@@ -495,7 +453,7 @@ public:
 	}
 
 	void draw() {
-		this->m_win.setSize(sf::Vector2u(this->m_width * this->m_scale, this->m_height * this->m_scale));
+		this->m_win.setSize(sf::Vector2u(this->m_width * this->m_info.scaling, this->m_height * this->m_info.scaling));
 
 		this->m_out_tex.clear();
 		this->m_out_tex.draw(this->m_in_rect);
@@ -507,7 +465,7 @@ public:
 	}
 
 	void draw(sf::RectangleShape *p_top_rect, sf::RectangleShape *p_bot_rect) {
-		this->m_win.setSize(sf::Vector2u(this->m_width * this->m_scale, this->m_height * this->m_scale));
+		this->m_win.setSize(sf::Vector2u(this->m_width * this->m_info.scaling, this->m_height * this->m_info.scaling));
 
 		this->m_out_tex.clear();
 		this->m_out_tex.draw(*p_top_rect);
@@ -518,15 +476,25 @@ public:
 		this->m_win.draw(this->m_out_rect);
 		this->m_win.display();
 	}
+	
+	int load_data() {
+		int ret_val = this->m_prepare_load;
+		this->m_prepare_load = 0;
+		return ret_val;
+	}
+	
+	int save_data() {
+		int ret_val = this->m_prepare_save;
+		this->m_prepare_save = 0;
+		return ret_val;
+	}
 
 private:
-	bool m_blur = false;
-	Crop m_crop = Crop::DEFAULT_3DS;
-	int m_rotation = 0;
-	double m_scale = 1.0;
-
-	Screen::Type m_type;
 	int m_width, m_height;
+	int m_prepare_load;
+	int m_prepare_save;
+
+	Screen::ScreenType m_stype;
 
 	sf::RenderTexture m_out_tex;
 	sf::RectangleShape m_out_rect;
@@ -535,19 +503,19 @@ private:
 	sf::Event m_event;
 
 	bool horizontal() {
-		return this->m_rotation / 10 % 2;
+		return this->m_info.rotation / 10 % 2;
 	}
 
 	int height(int height) {
-		return height * (this->m_type == Screen::Type::JOINT ? 2 : 1);
+		return height * (this->m_stype == Screen::ScreenType::JOINT ? 2 : 1);
 	}
 
 	std::string title() {
-		switch (this->m_type) {
-		case Screen::Type::TOP:
+		switch (this->m_stype) {
+		case Screen::ScreenType::TOP:
 			return std::string(NAME) + "-top";
 
-		case Screen::Type::BOT:
+		case Screen::ScreenType::BOT:
 			return std::string(NAME) + "-bot";
 
 		default:
@@ -561,21 +529,21 @@ private:
 	}
 
 	void open() {
-		this->m_win.create(sf::VideoMode(this->m_width * this->m_scale, this->m_height * this->m_scale), this->title());
+		this->m_win.create(sf::VideoMode(this->m_width * this->m_info.scaling, this->m_height * this->m_info.scaling), this->title());
 		this->m_win.setView(this->m_view);
 
 		g_vsync ? this->m_win.setVerticalSyncEnabled(true) : this->m_win.setFramerateLimit(FRAMERATE_LIMIT);
 	}
 
 	void rotate() {
-		this->m_view.setRotation(this->m_rotation);
+		this->m_view.setRotation(this->m_info.rotation);
 
 		this->m_view.setSize(this->m_width, this->m_height);
 		this->m_win.setView(this->m_view);
 	}
 
 	void crop() {
-		switch (this->m_crop) {
+		switch (this->m_info.crop_kind) {
 		case Crop::DEFAULT_3DS:
 			this->horizontal() ? this->resize(this->height(HEIGHT_3DS), TOP_WIDTH_3DS) : this->resize(TOP_WIDTH_3DS, this->height(HEIGHT_3DS));
 			break;
@@ -858,24 +826,27 @@ void playback() {
 	audio.stop();
 }
 
-void render() {
+void render(bool skip_io) {
 	UCHAR out_buf[FRAME_SIZE_RGBA];
 	int curr_out, prev_out = 0;
 	volatile int num_sleeps = 0;
+	bool loaded_split = false;
+	bool re_init = true;
 
 	g_in_tex.create(CAP_WIDTH, CAP_HEIGHT);
 
-	Screen top_screen(&gp_top_blur, &gp_top_crop, &gp_top_rotation, &gp_top_scale);
-	Screen bot_screen(&gp_bot_blur, &gp_bot_crop, &gp_bot_rotation, &gp_bot_scale);
-	Screen joint_screen(&gp_joint_blur, &gp_joint_crop, &gp_joint_rotation, &gp_joint_scale);
+	Screen top_screen(Screen::ScreenType::TOP);
+	Screen bot_screen(Screen::ScreenType::BOT);
+	Screen joint_screen(Screen::ScreenType::JOINT);
 
-	if (!g_skip_io) {
-		load(g_conf_dir + "/", std::string(NAME) + ".conf");
+	if (!skip_io) {
+		load(g_conf_dir + "/", std::string(NAME) + ".conf", top_screen.m_info, bot_screen.m_info, joint_screen.m_info);
 	}
+	loaded_split = g_split;
 
-	top_screen.build(Screen::Type::TOP, 0, TOP_WIDTH_3DS, g_split);
-	bot_screen.build(Screen::Type::BOT, TOP_WIDTH_3DS, BOT_WIDTH_3DS, g_split);
-	joint_screen.build(Screen::Type::JOINT, 0, TOP_WIDTH_3DS, !g_split);
+	top_screen.build(TOP_WIDTH_3DS, 0, g_split);
+	bot_screen.build(BOT_WIDTH_3DS, TOP_WIDTH_3DS, g_split);
+	joint_screen.build(TOP_WIDTH_3DS, 0, !g_split);
 
 	std::thread thread(playback);
 
@@ -893,21 +864,14 @@ void render() {
 
 			g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
 
-			if (g_init) {
+			if (re_init) {
 				top_screen.reset();
 				bot_screen.reset();
 				joint_screen.reset();
-
-				if (!(joint_screen.m_win.isOpen() ^ g_split)) {
-					top_screen.toggle();
-					bot_screen.toggle();
-					joint_screen.toggle();
-				}
-
-				g_init = false;
+				re_init = false;
 			}
 
-			if (g_swap) {
+			if (loaded_split != g_split) {
 				top_screen.toggle();
 				bot_screen.toggle();
 				joint_screen.toggle();
@@ -915,7 +879,7 @@ void render() {
 				top_screen.move();
 				bot_screen.move();
 
-				g_swap = false;
+				loaded_split = g_split;
 			}
 
 			if (g_split) {
@@ -931,9 +895,23 @@ void render() {
 			num_sleeps = 0;
 		}
 
+		int load_index = 0;
+		int save_index = 0;
 		top_screen.poll();
 		bot_screen.poll();
 		joint_screen.poll();
+		
+		if((load_index = top_screen.load_data()) || (load_index = bot_screen.load_data()) || (load_index = joint_screen.load_data())) {
+			if (!skip_io) {
+				re_init = load(g_conf_dir + "/presets/", "layout" + std::to_string(load_index) + ".conf", top_screen.m_info, bot_screen.m_info, joint_screen.m_info);
+			}
+		}
+		
+		if((save_index = top_screen.save_data()) || (save_index = bot_screen.save_data()) || (save_index = joint_screen.save_data())) {
+			if (!skip_io) {
+				save(g_conf_dir + "/presets/", "layout" + std::to_string(save_index) + ".conf", top_screen.m_info, bot_screen.m_info, joint_screen.m_info);
+			}
+		}
 
 		if(num_sleeps < USB_NUM_CHECKS) {
 			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
@@ -949,15 +927,16 @@ void render() {
 	bot_screen.m_win.close();
 	joint_screen.m_win.close();
 
-	if (!g_skip_io) {
-		save(g_conf_dir + "/", std::string(NAME) + ".conf");
+	if (!skip_io) {
+		save(g_conf_dir + "/", std::string(NAME) + ".conf", top_screen.m_info, bot_screen.m_info, joint_screen.m_info);
 	}
 }
 
 int main(int argc, char **argv) {
+	bool skip_io = false;
 	for (int i = 1; i < argc; ++i) {
 		if (strcmp(argv[i], "--safe") == 0) {
-			g_skip_io = true;
+			skip_io = true;
 			continue;
 		}
 
@@ -976,7 +955,7 @@ int main(int argc, char **argv) {
 	#endif
 	std::thread thread(capture);
 
-	render();
+	render(skip_io);
 	thread.join();
 
 	return 0;
