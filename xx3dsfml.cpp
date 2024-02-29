@@ -675,7 +675,7 @@ start:
 	}
 
 	#ifndef SAFER_QUIT
-	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
+	for (g_curr_in = 1; g_curr_in < BUF_COUNT; ++g_curr_in) {
 		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[g_curr_in], BUF_SIZE, &g_read[g_curr_in], &overlap[g_curr_in]);
 		if (ftStatus != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
@@ -689,18 +689,7 @@ start:
 	g_curr_in = 0;
 
 	while (g_connected && g_running) {
-		#ifndef SAFER_QUIT
-		ftStatus = FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true);
-		if(FT_FAILED(ftStatus)) {
-			printf("[%s] USB error.\n", NAME);
-			bad_close = true;
-			goto end;
-		}
-		if (ftStatus == FT_IO_INCOMPLETE && FT_AbortPipe(g_handle, BULK_IN)) {
-			printf("[%s] Abort failed.\n", NAME);
-			goto end;
-		}
-		#endif
+
 		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[g_curr_in], BUF_SIZE, &g_read[g_curr_in], &overlap[g_curr_in]);
 		if (ftStatus != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
@@ -709,7 +698,12 @@ start:
 			goto end;
 		}
 
-		#ifdef SAFER_QUIT
+		#ifndef SAFER_QUIT
+		if (++g_curr_in == BUF_COUNT) {
+			g_curr_in = 0;
+		}
+		#endif
+
 		ftStatus = FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true);
 		if(FT_FAILED(ftStatus)) {
 			printf("[%s] USB error.\n", NAME);
@@ -720,11 +714,12 @@ start:
 			printf("[%s] Abort failed.\n", NAME);
 			goto end;
 		}
-		#endif
 
+		#ifdef SAFER_QUIT
 		if (++g_curr_in == BUF_COUNT) {
 			g_curr_in = 0;
 		}
+		#endif
 	}
 end:
 	g_close_success = false;
@@ -792,7 +787,7 @@ void map(UCHAR *p_in, sf::Int16 *p_out, int n_samples) {
 void playback() {
 	Audio audio;
 	sf::Int16 out_buf[AUDIO_BUF_COUNT][SAMPLE_SIZE_16];
-	int curr_out, prev_out = BUF_COUNT - 1, audio_buf_counter = 0, num_consecutive_audio_stop = 0;
+	int curr_out, prev_out = 0, audio_buf_counter = 0, num_consecutive_audio_stop = 0;
 
 	audio.update_volume(g_volume, g_mute);
 	volatile int num_sleeps = 0;
