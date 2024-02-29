@@ -8,12 +8,10 @@
 #include <SFML/Audio.hpp>
 #include <SFML/Graphics.hpp>
 
-#include <cstring>
 #include <filesystem>
-
 #include <fstream>
 #include <sstream>
-
+#include <cstring>
 #include <thread>
 #include <queue>
 
@@ -47,9 +45,10 @@
 #define AUDIO_CHANNELS 2
 #define SAMPLE_RATE 32734
 #define AUDIO_LATENCY 4
-#define AUDIO_NUM_CHECKS 3
 #define AUDIO_FAILURE_THRESHOLD 8
-#define AUDIO_CHECKS_PER_SECOND ((USB_FPS + (USB_FPS / 12)) * AUDIO_NUM_CHECKS)
+
+#define USB_NUM_CHECKS 3
+#define USB_CHECKS_PER_SECOND ((USB_FPS + (USB_FPS / 12)) * USB_NUM_CHECKS)
 
 #define SAMPLE_SIZE_8 2192
 #define SAMPLE_SIZE_16 (SAMPLE_SIZE_8 / 2)
@@ -404,11 +403,15 @@ public:
 					break;
 
 				case sf::Keyboard::Hyphen:
-					this->m_scale -= this->m_scale == 1.0 ? 0.0 : 0.5;
+					this->m_scale -= 0.5;
+					if (this->m_scale < 1.25)
+						this->m_scale = 1.0;
 					break;
 
-				case sf::Keyboard::Equal:
-					this->m_scale += this->m_scale == 4.5 ? 0.0 : 0.5;
+				case sf::Keyboard::Num0:
+					this->m_scale += 0.5;
+					if (this->m_scale > 44.75)
+						this->m_scale = 45.0;
 					break;
 
 				case sf::Keyboard::LBracket:
@@ -846,8 +849,8 @@ void playback() {
 			num_consecutive_audio_stop = 0;
 		}
 
-		if(num_sleeps < AUDIO_NUM_CHECKS) {
-			sf::sleep(sf::milliseconds(1000/AUDIO_CHECKS_PER_SECOND));
+		if(num_sleeps < USB_NUM_CHECKS) {
+			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
 			++num_sleeps;
 		}
 	}
@@ -858,6 +861,7 @@ void playback() {
 void render() {
 	UCHAR out_buf[FRAME_SIZE_RGBA];
 	int curr_out, prev_out = 0;
+	volatile int num_sleeps = 0;
 
 	g_in_tex.create(CAP_WIDTH, CAP_HEIGHT);
 
@@ -876,14 +880,17 @@ void render() {
 	std::thread thread(playback);
 
 	while (g_running) {
-		top_screen.poll();
-		bot_screen.poll();
-		joint_screen.poll();
 
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
 		if (curr_out != prev_out) {
-			map(g_in_buf[curr_out], out_buf);
+			if(g_read[curr_out] >= FRAME_SIZE_RGB) {
+				map(g_in_buf[curr_out], out_buf);
+			}
+			else {
+				memset(out_buf, 0, FRAME_SIZE_RGBA);
+			}
+
 			g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
 
 			if (g_init) {
@@ -921,6 +928,16 @@ void render() {
 			}
 
 			prev_out = curr_out;
+			num_sleeps = 0;
+		}
+
+		top_screen.poll();
+		bot_screen.poll();
+		joint_screen.poll();
+
+		if(num_sleeps < USB_NUM_CHECKS) {
+			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
+			++num_sleeps;
 		}
 
 		sf::sleep(sf::milliseconds(0));
