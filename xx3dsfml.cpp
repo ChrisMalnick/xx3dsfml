@@ -35,6 +35,7 @@
 
 // This isn't precise, however we can use it...
 #define USB_FPS 60
+#define BAD_USB_FPS 25
 
 #define CAP_RES (CAP_WIDTH * CAP_HEIGHT)
 
@@ -49,6 +50,7 @@
 
 #define USB_NUM_CHECKS 3
 #define USB_CHECKS_PER_SECOND ((USB_FPS + (USB_FPS / 12)) * USB_NUM_CHECKS)
+#define BAD_USB_CHECKS_PER_SECOND ((BAD_USB_FPS + (BAD_USB_FPS / 12)) * USB_NUM_CHECKS)
 
 #define SAMPLE_SIZE_8 2192
 #define SAMPLE_SIZE_16 (SAMPLE_SIZE_8 / 2)
@@ -794,6 +796,7 @@ void playback() {
 
 	audio.update_volume(g_volume, g_mute);
 	volatile int num_sleeps = 0;
+	int num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
 	volatile int loaded_samples;
 
 	while (g_running) {
@@ -814,6 +817,10 @@ void playback() {
 				if(++audio_buf_counter == AUDIO_BUF_COUNT) {
 					audio_buf_counter = 0;
 				}
+				num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
+			}
+			else if(g_read[curr_out] < FRAME_SIZE_RGB){
+				num_usb_checks_per_second = BAD_USB_CHECKS_PER_SECOND;
 			}
 			num_sleeps = 0;
 			prev_out = curr_out;
@@ -837,7 +844,7 @@ void playback() {
 		}
 
 		if(num_sleeps < USB_NUM_CHECKS) {
-			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
+			sf::sleep(sf::milliseconds(1000/num_usb_checks_per_second));
 			++num_sleeps;
 		}
 	}
@@ -849,6 +856,7 @@ void render(bool skip_io) {
 	UCHAR out_buf[FRAME_SIZE_RGBA];
 	int curr_out, prev_out = 0;
 	volatile int num_sleeps = 0;
+	int num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
 	bool loaded_split = false;
 	bool re_init = true;
 
@@ -876,9 +884,11 @@ void render(bool skip_io) {
 		if (curr_out != prev_out) {
 			if(g_read[curr_out] >= FRAME_SIZE_RGB) {
 				map(g_in_buf[curr_out], out_buf);
+				num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
 			}
 			else {
 				memset(out_buf, 0, FRAME_SIZE_RGBA);
+				num_usb_checks_per_second = BAD_USB_CHECKS_PER_SECOND;
 			}
 
 			g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
@@ -933,7 +943,7 @@ void render(bool skip_io) {
 		}
 
 		if(num_sleeps < USB_NUM_CHECKS) {
-			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
+			sf::sleep(sf::milliseconds(1000/num_usb_checks_per_second));
 			++num_sleeps;
 		}
 
