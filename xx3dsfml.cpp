@@ -166,14 +166,28 @@ void load_info(std::string key, std::string value, std::string base, ScreenInfo 
 	}
 	if(key == (base + "crop")) {
 		info.crop_kind = static_cast<Crop>(std::stoi(value));
+		switch(info.crop_kind) {
+			case Crop::DEFAULT_3DS:
+			case Crop::SCALED_DS:
+			case Crop::NATIVE_DS:
+				break;
+			default:
+			info.crop_kind = Crop::DEFAULT_3DS;
+		}
 		return;
 	}
 	if(key == (base + "rotation")) {
 		info.rotation = std::stoi(value);
+		info.rotation %= 360;
+		info.rotation += (info.rotation < 0) ? 360 : 0;
 		return;
 	}
 	if(key == (base + "scale")) {
 		info.scaling = std::stod(value);
+		if(info.scaling < 1.25)
+			info.scaling = 1.0;
+		if(info.scaling > 44.75)
+			info.scaling = 45.0;
 		return;
 	}
 }
@@ -213,7 +227,12 @@ bool load(std::string path, std::string name, ScreenInfo &top_info, ScreenInfo &
 				}
 
 				if (key == "volume") {
-					g_volume = std::stoi(value);
+					int pre_loaded_volume = std::stoi(value);
+					if(pre_loaded_volume < 0)
+						pre_loaded_volume = 0;
+					if(pre_loaded_volume > 100)
+						pre_loaded_volume = 100;
+					g_volume = pre_loaded_volume;
 					continue;
 				}
 			}
