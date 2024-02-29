@@ -48,6 +48,7 @@
 #define SAMPLE_RATE 32734
 #define AUDIO_LATENCY 4
 #define AUDIO_NUM_CHECKS 3
+#define AUDIO_FAILURE_THRESHOLD 8
 #define AUDIO_CHECKS_PER_SECOND ((USB_FPS + (USB_FPS / 12)) * AUDIO_NUM_CHECKS)
 
 #define SAMPLE_SIZE_8 2192
@@ -114,11 +115,32 @@ bool connect(bool);
 
 class Audio : public sf::SoundStream {
 public:
+	int loaded_volume = -1;
+	bool loaded_mute = false;
+
 	Audio() {
 		sf::SoundStream::initialize(AUDIO_CHANNELS, SAMPLE_RATE);
 		#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
 		sf::SoundStream::setProcessingInterval(sf::milliseconds(0));
 		#endif
+	}
+	
+	void update_volume(int volume, bool mute) {
+		if(mute && (mute == loaded_mute)) {
+			return;
+		}
+		if(mute != loaded_mute) {
+			loaded_mute = mute;
+			loaded_volume = volume;
+		}
+		else if(volume != loaded_volume) {
+			loaded_mute = mute;
+			loaded_volume = volume;
+		}
+		else {
+			return;
+		}
+		setVolume(mute ? 0 : volume);
 	}
 
 private:
@@ -138,9 +160,7 @@ private:
 	void onSeek(sf::Time timeOffset) override {}
 };
 
-Audio g_audio;
-
-void load(std::string path, std::string name) {
+bool load(std::string path, std::string name) {
 	std::ifstream file(path + name);
 	std::string line;
 
@@ -148,7 +168,7 @@ void load(std::string path, std::string name) {
 		printf("[%s] File \"%s\" load failed.\n", NAME, name.c_str());
 		file.close();
 
-		return;
+		return false;
 	}
 
 	while (std::getline(file, line)) {
@@ -238,6 +258,7 @@ void load(std::string path, std::string name) {
 	}
 
 	file.close();
+	return true;
 }
 
 void save(std::string path, std::string name) {
@@ -423,27 +444,30 @@ public:
 					break;
 
 				case sf::Keyboard::M:
-					g_audio.setVolume((g_mute ^= true) ? 0 : g_volume);
+					g_mute = !g_mute;
 					break;
 
 				case sf::Keyboard::Comma:
-					g_audio.setVolume(g_volume -= g_volume == 0 ? 0 : 5);
+					g_mute = false;
+					g_volume -= 5;
+					if(g_volume < 0)
+						g_volume = 0;
 					break;
 
 				case sf::Keyboard::Period:
-					g_audio.setVolume(g_volume += g_volume == 100 ? 0 : 5);
+					g_mute = false;
+					g_volume += 5;
+					if(g_volume > 100)
+						g_volume = 100;
 					break;
 
 				case sf::Keyboard::F1:
 				case sf::Keyboard::F2:
 				case sf::Keyboard::F3:
 				case sf::Keyboard::F4:
-					if (!g_skip_io) {
-						load(g_conf_dir + "/presets/", "layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf");
+					if(!g_skip_io) {
+						g_init = load(g_conf_dir + "/presets/", "layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf");
 					}
-
-					g_init = true;
-					g_audio.setVolume(g_mute ? 0 : g_volume);
 
 					break;
 
@@ -774,18 +798,19 @@ void map(UCHAR *p_in, sf::Int16 *p_out, int n_samples) {
 }
 
 void playback() {
+	Audio audio;
 	sf::Int16 out_buf[AUDIO_BUF_COUNT][SAMPLE_SIZE_16];
-	int curr_out, prev_out = BUF_COUNT - 1, audio_buf_counter = 0;
-	bool samples_pushable = true;
+	int curr_out, prev_out = BUF_COUNT - 1, audio_buf_counter = 0, num_consecutive_audio_stop = 0;
 
-	g_audio.setVolume(g_mute ? 0 : g_volume);
+	audio.update_volume(g_volume, g_mute);
 	volatile int num_sleeps = 0;
+	volatile int loaded_samples;
 
 	while (g_running) {
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
 		if (curr_out != prev_out) {
-			volatile int loaded_samples = g_samples.size();
+			loaded_samples = g_samples.size();
 			if(loaded_samples >= AUDIO_LATENCY) {
 				g_samples.pop();
 			}
@@ -800,20 +825,34 @@ void playback() {
 					audio_buf_counter = 0;
 				}
 			}
-				
-			if (g_audio.getStatus() != sf::SoundStream::Playing) {
-				g_audio.play();
-			}
 			num_sleeps = 0;
 			prev_out = curr_out;
 		}
+		
+		loaded_samples = g_samples.size();
+		if (audio.getStatus() != sf::SoundStream::Playing) {
+			if (loaded_samples > 0) {
+				num_consecutive_audio_stop++;
+				if (num_consecutive_audio_stop > AUDIO_FAILURE_THRESHOLD) {
+					audio.stop();
+					audio.~Audio();
+					::new(&audio) Audio();
+				}
+				audio.play();
+			}
+		}
+		else {
+			audio.update_volume(g_volume, g_mute);
+			num_consecutive_audio_stop = 0;
+		}
+
 		if(num_sleeps < AUDIO_NUM_CHECKS) {
 			sf::sleep(sf::milliseconds(1000/AUDIO_CHECKS_PER_SECOND));
 			++num_sleeps;
 		}
 	}
 
-	g_audio.stop();
+	audio.stop();
 }
 
 void render() {
@@ -916,8 +955,8 @@ int main(int argc, char **argv) {
 	g_connected = connect(true);
 	#ifdef CLOSE_ON_FAIL
 	if(!g_connected)
-	    return -1;
-    #endif
+		return -1;
+	#endif
 	std::thread thread(capture);
 
 	render();
