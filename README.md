@@ -8,11 +8,13 @@ xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscaptu
 - The ability to split the screens into separate windows or join them into a single window.
 - The ability to evenly and incrementally scale the windows independently of each other.
 - The ability to rotate the windows independently of each other to either side and even upside down.
-- The ability to crop the windows independently of each other for DS games.
+- The ability to crop the windows independently of each other for DS games in both scaled and native resolution.
 - The ability to blur the contents of the windows independently of each other.
 - Smooth, continuous volume controls with separate mute control.
 - A config file that saves all of these settings individually which allows all three windows to have completely different configurations.
 - Four configurable user layouts that can be saved to and loaded from on the fly.
+
+*Note: DS games boot in scaled resolution mode by default. Holding START or SELECT while launching DS games will boot in native resolution mode.*
 
 #### Dependencies
 
@@ -39,7 +41,7 @@ Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile 
 #### Controls
 
 - S key: Swaps between split mode and joint mode which splits the screens into separate windows or joins them into a single window respectively.
-- C key: Toggles cropping on/off for the focused window. This can be used to fill the screen when the console is in DS mode.
+- C key: Cycles to the next cropping mode for the focused window. The currently supported cropping modes are for default 3DS, scaled DS, and native DS respectively.
 - B key: Toggles blurring on/off for the focused window. This is only noticeable at 1.5x scale or greater.
 - \- key: Decrements the scaling by 0.5x for the focused window. 1.0x is the minimum.
 - = key: Increments the scaling by 0.5x for the focused window. 4.5x is the maximum.
