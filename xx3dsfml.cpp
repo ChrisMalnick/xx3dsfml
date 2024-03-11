@@ -570,6 +570,9 @@ void capture() {
 	}
 
 end:
+	// BULK_IN seems to get stuck on macOS which prevents the device from working until reinsertion, this fixes it somehow
+	FT_ReadPipe(g_handle, BULK_IN, g_in_buf[g_curr_in], BUF_SIZE, &g_read[g_curr_in], 1);
+
 	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
 		if (FT_ReleaseOverlapped(g_handle, &overlap[g_curr_in])) {
 			printf("[%s] Release failed.\n", NAME);
