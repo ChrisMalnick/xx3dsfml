@@ -663,6 +663,7 @@ start:
 		if (!g_running) {
 			return;
 		}
+		sf::sleep(sf::milliseconds(1000/BAD_USB_CHECKS_PER_SECOND));
 	}
 
 	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
@@ -725,11 +726,13 @@ end:
 	g_close_success = false;
 	g_connected = false;
 	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
+		#ifndef SAFER_QUIT
 		if(!bad_close) {
 			ftStatus = FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true);
 			if(FT_FAILED(ftStatus))
 				bad_close = true;
 		}
+		#endif
 		if (FT_ReleaseOverlapped(g_handle, &overlap[g_curr_in])) {
 			printf("[%s] Release failed.\n", NAME);
 		}
@@ -838,7 +841,7 @@ void playback() {
 			num_consecutive_audio_stop = 0;
 		}
 
-		if(num_sleeps < USB_NUM_CHECKS) {
+		if((num_sleeps < USB_NUM_CHECKS) || (!g_connected)) {
 			sf::sleep(sf::milliseconds(1000/num_usb_checks_per_second));
 			++num_sleeps;
 		}
@@ -937,7 +940,7 @@ void render(bool skip_io) {
 			}
 		}
 
-		if(num_sleeps < USB_NUM_CHECKS) {
+		if((num_sleeps < USB_NUM_CHECKS) || (!g_connected)) {
 			sf::sleep(sf::milliseconds(1000/num_usb_checks_per_second));
 			++num_sleeps;
 		}
