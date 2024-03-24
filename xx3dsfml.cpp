@@ -46,7 +46,7 @@
 #define AUDIO_BUF_COUNT 7
 #define AUDIO_CHANNELS 2
 #define SAMPLE_RATE 32734
-#define AUDIO_LATENCY 3
+#define AUDIO_LATENCY 4
 #define AUDIO_NUM_CHECKS 3
 #define AUDIO_CHECKS_PER_SECOND ((USB_FPS + (USB_FPS / 12)) * AUDIO_NUM_CHECKS)
 
@@ -67,11 +67,12 @@
 #define DELTA_HEIGHT_DS (HEIGHT_3DS - HEIGHT_DS)
 
 #define FRAMERATE_LIMIT 60
-#define SAMPLE_LIMIT 4
-
-enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS, END };
 
 //#define CLOSE_ON_FAIL
+//#define SAFER_QUIT
+//#define TRY_HANDLE_BAD_READS
+
+enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS, END };
 
 struct Sample {
 	Sample(sf::Int16 *bytes, std::size_t size) : bytes(bytes), size(size) {}
@@ -109,7 +110,7 @@ Crop *gp_top_crop, *gp_bot_crop, *gp_joint_crop;
 int *gp_top_rotation, *gp_bot_rotation, *gp_joint_rotation;
 double *gp_top_scale, *gp_bot_scale, *gp_joint_scale;
 
-bool connect(void);
+bool connect(bool);
 
 class Audio : public sf::SoundStream {
 public:
@@ -370,7 +371,7 @@ public:
 			case sf::Event::KeyPressed:
 				switch (this->m_event.key.code) {
 				case sf::Keyboard::C:
-					g_connected = connect();
+					g_connected = connect(true);
 					break;
 
 				case sf::Keyboard::S:
@@ -566,18 +567,21 @@ private:
 	}
 };
 
-bool connect(void) {
+bool connect(bool print_failed) {
 	if (g_connected) {
 		g_close_success = false;
 		return false;
 	}
 	
-	if(!g_close_success)
+	if(!g_close_success) {
 		return false;
+	}
 
 	if (FT_Create(const_cast<char*>(PRODUCT_1), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
 		if (FT_Create(const_cast<char*>(PRODUCT_2), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
-			printf("[%s] Create failed.\n", NAME);
+			if(print_failed) {
+				printf("[%s] Create failed.\n", NAME);
+			}
 			return false;
 		}
 	}
@@ -586,29 +590,59 @@ bool connect(void) {
 	ULONG written = 0;
 
 	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
-		printf("[%s] Write failed.\n", NAME);
+		if(print_failed) {
+			printf("[%s] Write failed.\n", NAME);
+		}
 		return false;
 	}
 
 	buf[1] = 0x00;
 
 	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
-		printf("[%s] Write failed.\n", NAME);
+		if(print_failed) {
+			printf("[%s] Write failed.\n", NAME);
+		}
 		return false;
 	}
 
 	if (FT_SetStreamPipe(g_handle, false, false, BULK_IN, BUF_SIZE)) {
-		printf("[%s] Stream failed.\n", NAME);
+		if(print_failed) {
+			printf("[%s] Stream failed.\n", NAME);
+		}
 		return false;
 	}
 
 	return true;
 }
 
+void bad_read_close() {
+	g_close_success = false;
+	g_connected = false;
+	#ifdef TRY_HANDLE_BAD_READS
+	g_close_success = true;
+	// Due to a mistake in how FT_ReadPipeAsync works,
+	// you need to re-create a device before you can close this down... :/
+	// Though the create method itself can also get stuck if you insert
+	// the device back at the wrong moment! This is honestly madness... :/
+	// The right way to do this would be asking the user to press a key
+	// once the device has been re-connected properly... :/
+	// The only saving grace is that this type of error while closing is
+	// somewhat rare, due to the high amount of time spent in FT_ReadPipeAsync.
+	// Still...
+	printf("[%s] Please reconnect the console so the program may be properly closed!\n", NAME);
+	while(!g_connected) {
+		sf::sleep(sf::milliseconds(100));
+		g_connected = connect(false);
+	}
+	#endif
+}
+
 void capture() {
 	OVERLAPPED overlap[BUF_COUNT];
+	FT_STATUS ftStatus;
 
 start:
+	bool bad_close = false;
 	while (!g_connected) {
 		if (!g_running) {
 			return;
@@ -616,31 +650,75 @@ start:
 	}
 
 	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
-		if (FT_InitializeOverlapped(g_handle, &overlap[g_curr_in])) {
+		ftStatus = FT_InitializeOverlapped(g_handle, &overlap[g_curr_in]);
+		if (ftStatus) {
 			printf("[%s] Initialize failed.\n", NAME);
+			bad_close = true;
 			goto end;
 		}
 	}
+
+	#ifndef SAFER_QUIT
+	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
+		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[g_curr_in], BUF_SIZE, &g_read[g_curr_in], &overlap[g_curr_in]);
+		if (ftStatus != FT_IO_PENDING) {
+			printf("[%s] Read failed.\n", NAME);
+			bad_read_close();
+			bad_close = true;
+			goto end;
+		}
+	}
+	#endif
 
 	g_curr_in = 0;
 
 	while (g_connected && g_running) {
-		if (FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true) == FT_IO_INCOMPLETE && FT_AbortPipe(g_handle, BULK_IN)) {
+		#ifndef SAFER_QUIT
+		ftStatus = FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true);
+		if(FT_FAILED(ftStatus)) {
+			printf("[%s] USB error.\n", NAME);
+			bad_close = true;
+			goto end;
+		}
+		if (ftStatus == FT_IO_INCOMPLETE && FT_AbortPipe(g_handle, BULK_IN)) {
 			printf("[%s] Abort failed.\n", NAME);
 			goto end;
 		}
-
-		if (FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[g_curr_in], BUF_SIZE, &g_read[g_curr_in], &overlap[g_curr_in]) != FT_IO_PENDING) {
+		#endif
+		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[g_curr_in], BUF_SIZE, &g_read[g_curr_in], &overlap[g_curr_in]);
+		if (ftStatus != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
+			bad_read_close();
+			bad_close = true;
 			goto end;
 		}
 
-		g_curr_in = (g_curr_in + 1) % BUF_COUNT;
-	}
+		#ifdef SAFER_QUIT
+		ftStatus = FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true);
+		if(FT_FAILED(ftStatus)) {
+			printf("[%s] USB error.\n", NAME);
+			bad_close = true;
+			goto end;
+		}
+		if (ftStatus == FT_IO_INCOMPLETE && FT_AbortPipe(g_handle, BULK_IN)) {
+			printf("[%s] Abort failed.\n", NAME);
+			goto end;
+		}
+		#endif
 
+		if (++g_curr_in == BUF_COUNT) {
+			g_curr_in = 0;
+		}
+	}
 end:
+	g_close_success = false;
+	g_connected = false;
 	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
-		FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true);
+		if(!bad_close) {
+			ftStatus = FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true);
+			if(FT_FAILED(ftStatus))
+				bad_close = true;
+		}
 		if (FT_ReleaseOverlapped(g_handle, &overlap[g_curr_in])) {
 			printf("[%s] Release failed.\n", NAME);
 		}
@@ -649,12 +727,14 @@ end:
 	if (FT_Close(g_handle)) {
 		printf("[%s] Close failed.\n", NAME);
 	}
-	
-	g_close_success = true;
+
+	g_close_success = false;
 	g_connected = false;
+
 	#ifdef CLOSE_ON_FAIL
 	g_running = false;
 	#endif
+	g_close_success = true;
 	goto start;
 }
 
@@ -705,31 +785,31 @@ void playback() {
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
 		if (curr_out != prev_out) {
-		    volatile int loaded_samples = g_samples.size();
-		    if(loaded_samples >= AUDIO_LATENCY) {
-	            g_samples.pop();
-		    }
-		    if (g_read[curr_out] > FRAME_SIZE_RGB) {
-			    int n_samples = (g_read[curr_out] - FRAME_SIZE_RGB) / 2;
-	            if(n_samples > SAMPLE_SIZE_16) {
-		            n_samples = SAMPLE_SIZE_16;
-	            }
-			    map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[audio_buf_counter], n_samples);
-			    g_samples.emplace(out_buf[audio_buf_counter], n_samples);
-			    if(++audio_buf_counter == AUDIO_BUF_COUNT) {
-				    audio_buf_counter = 0;
-			    }
-    	    }
-			    
-	        if (g_audio.getStatus() != sf::SoundStream::Playing) {
-		        g_audio.play();
-    	    }
-		    num_sleeps = 0;
+			volatile int loaded_samples = g_samples.size();
+			if(loaded_samples >= AUDIO_LATENCY) {
+				g_samples.pop();
+			}
+			if (g_read[curr_out] > FRAME_SIZE_RGB) {
+				int n_samples = (g_read[curr_out] - FRAME_SIZE_RGB) / 2;
+				if(n_samples > SAMPLE_SIZE_16) {
+					n_samples = SAMPLE_SIZE_16;
+				}
+				map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[audio_buf_counter], n_samples);
+				g_samples.emplace(out_buf[audio_buf_counter], n_samples);
+				if(++audio_buf_counter == AUDIO_BUF_COUNT) {
+					audio_buf_counter = 0;
+				}
+			}
+				
+			if (g_audio.getStatus() != sf::SoundStream::Playing) {
+				g_audio.play();
+			}
+			num_sleeps = 0;
 			prev_out = curr_out;
 		}
 		if(num_sleeps < AUDIO_NUM_CHECKS) {
-    		sf::sleep(sf::milliseconds(1000/AUDIO_CHECKS_PER_SECOND));
-    		++num_sleeps;
+			sf::sleep(sf::milliseconds(1000/AUDIO_CHECKS_PER_SECOND));
+			++num_sleeps;
 		}
 	}
 
@@ -833,7 +913,11 @@ int main(int argc, char **argv) {
 		printf("[%s] Invalid argument \"%s\".\n", NAME, argv[i]);
 	}
 
-	g_connected = connect();
+	g_connected = connect(true);
+	#ifdef CLOSE_ON_FAIL
+	if(!g_connected)
+	    return -1;
+    #endif
 	std::thread thread(capture);
 
 	render();
