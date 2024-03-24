@@ -84,6 +84,7 @@ int g_volume = 50;
 bool g_mute = false;
 
 bool g_init = true;
+bool g_skip_io = false;
 
 bool *gp_top_blur, *gp_bot_blur, *gp_joint_blur;
 Crop *gp_top_crop, *gp_bot_crop, *gp_joint_crop;
@@ -116,9 +117,14 @@ private:
 
 Audio g_audio;
 
-void load(std::string name) {
+bool load(std::string name) {
 	std::ifstream file(name);
 	std::string line;
+
+	if (!file.good()) {
+		printf("[%s] File \"%s\" load failed.\n", NAME, name.c_str());
+		return false;
+	}
 
 	while (std::getline(file, line)) {
 		std::istringstream kvp(line);
@@ -207,10 +213,16 @@ void load(std::string name) {
 	}
 
 	file.close();
+	return true;
 }
 
 void save(std::string name) {
 	std::ofstream file(name);
+
+	if (!file.good()) {
+		printf("[%s] File \"%s\" save failed.\n", NAME, name.c_str());
+		return;
+	}
 
 	file << "bot_blur=" << *gp_bot_blur << std::endl;
 	file << "bot_crop=" << *gp_bot_crop << std::endl;
@@ -387,10 +399,9 @@ public:
 				case sf::Keyboard::F2:
 				case sf::Keyboard::F3:
 				case sf::Keyboard::F4:
-					g_init = true;
-
-					load("./presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf");
-					g_audio.setVolume(g_mute ? 0 : g_volume);
+					if (!g_skip_io && (g_init = load("./presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf"))) {
+						g_audio.setVolume(g_mute ? 0 : g_volume);
+					}
 
 					break;
 
@@ -398,7 +409,10 @@ public:
 				case sf::Keyboard::F6:
 				case sf::Keyboard::F7:
 				case sf::Keyboard::F8:
-					save("./presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F5 + 1) + ".conf");
+					if (!g_skip_io) {
+						save("./presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F5 + 1) + ".conf");
+					}
+
 					break;
 				}
 
@@ -437,10 +451,10 @@ public:
 	}
 
 private:
-	bool m_blur;
-	Crop m_crop;
-	int m_rotation;
-	double m_scale;
+	bool m_blur = false;
+	Crop m_crop = Crop::DEFAULT_3DS;
+	int m_rotation = 0;
+	double m_scale = 1.0;
 
 	Screen::Type m_type;
 	int m_width, m_height;
@@ -656,7 +670,9 @@ void render() {
 	Screen bot_screen(&gp_bot_blur, &gp_bot_crop, &gp_bot_rotation, &gp_bot_scale);
 	Screen joint_screen(&gp_joint_blur, &gp_joint_crop, &gp_joint_rotation, &gp_joint_scale);
 
-	load("./" + std::string(NAME) + ".conf");
+	if (!g_skip_io) {
+		g_skip_io = !load("./" + std::string(NAME) + ".conf");
+	}
 
 	top_screen.build(Screen::Type::TOP, 0, TOP_WIDTH_3DS, g_split);
 	bot_screen.build(Screen::Type::BOT, TOP_WIDTH_3DS, BOT_WIDTH_3DS, g_split);
@@ -721,10 +737,21 @@ void render() {
 	bot_screen.m_win.close();
 	joint_screen.m_win.close();
 
-	save("./" + std::string(NAME) + ".conf");
+	if (!g_skip_io) {
+		save("./" + std::string(NAME) + ".conf");
+	}
 }
 
-int main() {
+int main(int argc, char **argv) {
+	for (int i = 1; i < argc; ++i) {
+		if (strcmp(argv[i], "--safe") == 0) {
+			g_skip_io = true;
+			continue;
+		}
+
+		printf("[%s] Invalid argument \"%s\".\n", NAME, argv[i]);
+	}
+
 	if (!open()) {
 		return -1;
 	}

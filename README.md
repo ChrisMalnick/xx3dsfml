@@ -18,25 +18,24 @@ xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscaptu
 
 #### Dependencies
 
-*Note: The following instructions are for Linux.*
+xx3dsfml has two dependencies: [FTDI's D3XX driver](https://ftdichip.com/drivers/d3xx-drivers/) and [SFML](https://www.sfml-dev.org/).
 
-xx3dsfml has two dependencies, [FTDI's D3XX driver](https://ftdichip.com/drivers/d3xx-drivers/) and [SFML](https://www.sfml-dev.org/).
+The D3XX driver can be installed with the provided Makefile as outlined in the **Install** section below. However, it may also be available in certain package managers/repositories.
 
-The D3XX driver can be downloaded from the link above which also contains the installation instructions. However, in order to compile the xx3dsfml.cpp code, two additional steps need to be taken:
+The native C++ version of SFML, including its development files, also needs to be installed. The simplest way to accomplish this would be using a package manager, for which a popular choice on Mac is [Homebrew](https://brew.sh/).
 
-1. A directory named libftd3xx needs to be created in the /usr/include directory.
-2. The ftd3xx.h and Types.h header files need to be copied to the newly created libftd3xx directory.
-
-Doing this is the equivalent of installing a development package for a utility via a package manager and will allow **any** C/C++ code/compilers to reference these headers.
-
-The SFML **development** package for **C++** also needs to be installed. C++ is the default language for SFML and is not a binding. This can very likely be installed via your package manager of choice.
+*Note: C++ is the default language for SFML and is not a binding.*
 
 #### Install
 
 Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile utilizing the Make utility and g++ compiler is provided with the following functionality:
 
-1. make:	    This will create the executable which can be executed via the ./xx3dsfml command.
-2. make clean:	This will remove all files (including the executable) created by the above command.
+1. make:	        This will create the executable which can be executed via the ./xx3dsfml command.
+2. make clean:	    This will remove all files, including the executable, created by the above command.
+3. make install:    This will install the D3XX driver, including its development files.
+4. make uninstall:  This will uninstall the D3XX driver, including its development files.
+
+When executing the install or uninstall Makefile targets, you may be prompted for a password. On Mac, you may also be prompted to install the command line developer tools when attempting to execute the Make utility. Installing this should provide everything that's needed within the provided Makefile.
 
 #### Controls
 
@@ -67,7 +66,7 @@ Just as well, four layout files are provided which can be used to save and load 
 - Disconnecting the N3DSXL while the program is running will cause it to close immediately. This doesn't apply to sleep mode.
 - Minimal audio artifacts can occur, albeit very infrequently, and the audio can vary slightly in latency. This is due to the 3DS's non-integer sample rate.
 - The Ofast g++ optimize flag has been added to the Makefile, so when compiling without it, be aware that optimizations may not occur unless explicitly specified.
-- The xx3dsfml.conf file and presets directory must be kept in the same directory as the xx3dsfml executable, and the xx3dsfml executable must be executed from the same directory where the xx3dsfml.conf file and presets directory reside. This is because the config and layout files are referenced relative to the executable, meaning that they will not be located by the program in either of these scenarios.
+- In order to make use of the config and layout files, the xx3dsfml.conf file and presets directory must be kept in the same directory as the xx3dsfml executable, and the xx3dsfml executable must be executed from the same directory where the xx3dsfml.conf file and presets directory reside. This is because the config and layout files are referenced relative to the executable, meaning that they will not be located by the program in either of these scenarios.
 - Occasionally, the software may be unable to create a handle to the device at startup even though it's connected to and recognized by the system. Simply reconnecting the device and restarting the software should resolve the issue.
 - If any issues occur while the device is indirectly connected to the system that isn't resolved by reconnecting the device and restarting the software, please consider connecting the device directly to the system instead.
 
