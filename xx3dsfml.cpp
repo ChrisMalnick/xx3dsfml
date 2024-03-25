@@ -101,6 +101,7 @@ std::string g_conf_dir = std::string(std::getenv("HOME")) + "/.config/" + std::s
 
 int g_curr_in = 0;
 
+bool g_is_ready_curr_in = false;
 bool g_connected = false;
 bool g_running = true;
 bool g_close_success = true;
@@ -630,92 +631,89 @@ bool connect(bool print_failed) {
 	return true;
 }
 
-void capture() {
-	OVERLAPPED overlap[BUF_COUNT];
-	FT_STATUS ftStatus;
+void capture_call(OVERLAPPED overlap[BUF_COUNT]) {
 	int inner_curr_in = 0;
-	g_curr_in = inner_curr_in;
-
-start:
-	while (!g_connected) {
-		if (!g_running) {
-			return;
-		}
-		sf::sleep(sf::milliseconds(1000/BAD_USB_CHECKS_PER_SECOND));
-	}
-
+	FT_STATUS ftStatus;
 	for (inner_curr_in = 0; inner_curr_in < BUF_COUNT; ++inner_curr_in) {
 		ftStatus = FT_InitializeOverlapped(g_handle, &overlap[inner_curr_in]);
 		if (ftStatus) {
 			printf("[%s] Initialize failed.\n", NAME);
-			goto end;
+			return;
 		}
 	}
 
-	#ifndef SAFER_QUIT
-	for (inner_curr_in = 1; inner_curr_in < BUF_COUNT; ++inner_curr_in) {
+	for (inner_curr_in = 0; inner_curr_in < BUF_COUNT - 1; ++inner_curr_in) {
 		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[inner_curr_in], BUF_SIZE, &g_read[inner_curr_in], &overlap[inner_curr_in]);
 		if (ftStatus != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
-			goto end;
+			return;
 		}
 	}
-	#endif
 
-	inner_curr_in = 0;
+	inner_curr_in = BUF_COUNT - 1;
 
 	while (g_connected && g_running) {
 
 		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[inner_curr_in], BUF_SIZE, &g_read[inner_curr_in], &overlap[inner_curr_in]);
 		if (ftStatus != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
-			goto end;
+			return;
 		}
 
-		#ifndef SAFER_QUIT
 		inner_curr_in = (inner_curr_in + 1) % BUF_COUNT;
-		g_curr_in = inner_curr_in;
-		#endif
 
 		ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
-		if(FT_FAILED(ftStatus)) {
-			printf("[%s] USB error.\n", NAME);
-			goto end;
-		}
 		if (ftStatus == FT_IO_INCOMPLETE && FT_AbortPipe(g_handle, BULK_IN)) {
 			printf("[%s] Abort failed.\n", NAME);
-			goto end;
+			return;
+		}
+		else if(FT_FAILED(ftStatus)) {
+			printf("[%s] USB error.\n", NAME);
+			return;
 		}
 
-		#ifdef SAFER_QUIT
-		inner_curr_in = (inner_curr_in + 1) % BUF_COUNT;
 		g_curr_in = inner_curr_in;
-		#endif
+		g_is_ready_curr_in = true;
 	}
-end:
-	g_close_success = false;
-	g_connected = false;
-	for (inner_curr_in = 0; inner_curr_in < BUF_COUNT; ++inner_curr_in) {
-		#ifndef SAFER_QUIT
-		ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
-		#endif
-		if (FT_ReleaseOverlapped(g_handle, &overlap[inner_curr_in])) {
-			printf("[%s] Release failed.\n", NAME);
+
+	return;
+}
+
+void capture() {
+	OVERLAPPED overlap[BUF_COUNT];
+	FT_STATUS ftStatus;
+	int inner_curr_in = 0;
+	g_curr_in = inner_curr_in;
+	g_is_ready_curr_in = false;
+
+	while(g_running) {
+		if (!g_connected) {
+			sf::sleep(sf::milliseconds(1000/BAD_USB_CHECKS_PER_SECOND));
+			continue;
 		}
+
+		capture_call(overlap);
+
+		g_close_success = false;
+		g_connected = false;
+		g_is_ready_curr_in = false;
+
+		for (inner_curr_in = 0; inner_curr_in < BUF_COUNT; ++inner_curr_in) {
+			ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
+			if (FT_ReleaseOverlapped(g_handle, &overlap[inner_curr_in])) {
+				printf("[%s] Release failed.\n", NAME);
+			}
+		}
+
+		if (FT_Close(g_handle)) {
+			printf("[%s] Close failed.\n", NAME);
+		}
+
+		#ifdef CLOSE_ON_FAIL
+		g_running = false;
+		#endif
+		g_close_success = true;
 	}
-
-	if (FT_Close(g_handle)) {
-		printf("[%s] Close failed.\n", NAME);
-	}
-
-	g_close_success = false;
-	g_connected = false;
-
-	#ifdef CLOSE_ON_FAIL
-	g_running = false;
-	#endif
-	g_close_success = true;
-	goto start;
 }
 
 void map(UCHAR *p_in, UCHAR *p_out) {
@@ -766,7 +764,7 @@ void playback() {
 	while (g_running) {
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
-		if (curr_out != prev_out) {
+		if (g_is_ready_curr_in && (curr_out != prev_out)) {
 			loaded_samples = g_samples.size();
 			if(loaded_samples >= AUDIO_LATENCY) {
 				g_samples.pop();
@@ -845,7 +843,7 @@ void render(bool skip_io) {
 
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
-		if (curr_out != prev_out) {
+		if (g_is_ready_curr_in && (curr_out != prev_out)) {
 			if(g_read[curr_out] >= FRAME_SIZE_RGB) {
 				map(g_in_buf[curr_out], out_buf);
 				num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
