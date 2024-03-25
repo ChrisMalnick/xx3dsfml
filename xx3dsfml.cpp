@@ -45,6 +45,8 @@
 #define SAMPLE_SIZE_8 2192
 #define SAMPLE_SIZE_16 (SAMPLE_SIZE_8 / 2)
 
+#define MAX_SAMPLES 4
+
 #define BUF_COUNT 8
 #define BUF_SIZE (FRAME_SIZE_RGB + SAMPLE_SIZE_8)
 
@@ -58,7 +60,7 @@
 
 #define DELTA_HEIGHT_DS (HEIGHT_3DS - HEIGHT_DS)
 
-enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS };
+enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS, END };
 
 struct Sample {
 	Sample(sf::Int16 *bytes, std::size_t size) : bytes(bytes), size(size) {}
@@ -76,6 +78,8 @@ sf::Texture g_in_tex;
 std::queue<Sample> g_samples;
 
 int g_curr_in = 0;
+
+bool g_connected = false;
 bool g_running = true;
 
 bool g_split, g_swap = false;
@@ -86,6 +90,8 @@ bool g_mute = false;
 bool g_init = true;
 bool g_skip_io = false;
 
+std::string g_conf_dir = std::string(std::getenv("HOME")) + "/.config/" + std::string(NAME);
+
 bool *gp_top_blur, *gp_bot_blur, *gp_joint_blur;
 Crop *gp_top_crop, *gp_bot_crop, *gp_joint_crop;
 int *gp_top_rotation, *gp_bot_rotation, *gp_joint_rotation;
@@ -95,7 +101,7 @@ class Audio : public sf::SoundStream {
 public:
 	Audio() {
 		sf::SoundStream::initialize(AUDIO_CHANNELS, SAMPLE_RATE);
-		sf::SoundStream::setProcessingInterval(sf::seconds(0));
+		sf::SoundStream::setProcessingInterval(sf::milliseconds(0));
 	}
 
 private:
@@ -116,6 +122,41 @@ private:
 };
 
 Audio g_audio;
+
+bool connect() {
+	if (g_connected) {
+		return false;
+	}
+
+	if (FT_Create(const_cast<char*>(PRODUCT_1), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
+		if (FT_Create(const_cast<char*>(PRODUCT_2), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
+			printf("[%s] Create failed.\n", NAME);
+			return false;
+		}
+	}
+
+	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
+	ULONG written = 0;
+
+	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
+		printf("[%s] Write failed.\n", NAME);
+		return false;
+	}
+
+	buf[1] = 0x00;
+
+	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
+		printf("[%s] Write failed.\n", NAME);
+		return false;
+	}
+
+	if (FT_SetStreamPipe(g_handle, false, false, BULK_IN, BUF_SIZE)) {
+		printf("[%s] Stream failed.\n", NAME);
+		return false;
+	}
+
+	return true;
+}
 
 bool load(std::string name) {
 	std::ifstream file(name);
@@ -343,16 +384,12 @@ public:
 
 			case sf::Event::KeyPressed:
 				switch (this->m_event.key.code) {
-				case sf::Keyboard::S:
-					g_split ^= g_swap = true;
+				case sf::Keyboard::C:
+					g_connected = connect();
 					break;
 
-				case sf::Keyboard::C:
-					this->m_crop = static_cast<Crop>((this->m_crop + 1) % (Crop::NATIVE_DS + 1));
-
-					this->crop();
-					this->move();
-
+				case sf::Keyboard::S:
+					g_split ^= g_swap = true;
 					break;
 
 				case sf::Keyboard::B:
@@ -370,7 +407,7 @@ public:
 				case sf::Keyboard::LBracket:
 					std::swap(this->m_width, this->m_height);
 
-					this->m_rotation = ((this->m_rotation + 90) % 360 + 360) % 360;
+					this->m_rotation = (this->m_rotation + 90) % 360;
 					this->rotate();
 
 					break;
@@ -380,6 +417,22 @@ public:
 
 					this->m_rotation = ((this->m_rotation - 90) % 360 + 360) % 360;
 					this->rotate();
+
+					break;
+
+				case sf::Keyboard::Apostrophe:
+					this->m_crop = static_cast<Crop>((this->m_crop + 1) % Crop::END);
+
+					this->crop();
+					this->move();
+
+					break;
+
+				case sf::Keyboard::Semicolon:
+					this->m_crop = static_cast<Crop>(((this->m_crop - 1) % Crop::END + Crop::END) % Crop::END);
+
+					this->crop();
+					this->move();
 
 					break;
 
@@ -399,7 +452,7 @@ public:
 				case sf::Keyboard::F2:
 				case sf::Keyboard::F3:
 				case sf::Keyboard::F4:
-					if (!g_skip_io && (g_init = load("./presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf"))) {
+					if (!g_skip_io && (g_init = load(g_conf_dir + "/presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf"))) {
 						g_audio.setVolume(g_mute ? 0 : g_volume);
 					}
 
@@ -410,7 +463,7 @@ public:
 				case sf::Keyboard::F7:
 				case sf::Keyboard::F8:
 					if (!g_skip_io) {
-						save("./presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F5 + 1) + ".conf");
+						save(g_conf_dir + "/presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F5 + 1) + ".conf");
 					}
 
 					break;
@@ -494,6 +547,8 @@ private:
 	void open() {
 		this->m_win.create(sf::VideoMode(this->m_width * this->m_scale, this->m_height * this->m_scale), this->title());
 		this->m_win.setView(this->m_view);
+
+		this->m_win.setKeyRepeatEnabled(false);
 	}
 
 	void rotate() {
@@ -523,39 +578,24 @@ private:
 	}
 };
 
-bool open() {
-	if (FT_Create(const_cast<char*>(PRODUCT_1), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
-		if (FT_Create(const_cast<char*>(PRODUCT_2), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
-			printf("[%s] Create failed.\n", NAME);
-			return false;
-		}
-	}
-
-	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
-	ULONG written = 0;
-
-	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
-		printf("[%s] Write failed.\n", NAME);
-		return false;
-	}
-
-	buf[1] = 0x00;
-
-	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
-		printf("[%s] Write failed.\n", NAME);
-		return false;
-	}
-
-	if (FT_SetStreamPipe(g_handle, false, false, BULK_IN, BUF_SIZE)) {
-		printf("[%s] Stream failed.\n", NAME);
-		return false;
-	}
-
-	return true;
-}
-
 void capture() {
 	OVERLAPPED overlap[BUF_COUNT];
+
+start:
+	g_curr_in = 0;
+
+	while (!g_connected) {
+		if (!g_running) {
+			return;
+		}
+
+		memset(g_in_buf[g_curr_in], 0, BUF_SIZE);
+		g_read[g_curr_in] = 0;
+
+		sf::sleep(sf::milliseconds(100));
+
+		g_curr_in = (g_curr_in + 1) % BUF_COUNT;
+	}
 
 	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
 		if (FT_InitializeOverlapped(g_handle, &overlap[g_curr_in])) {
@@ -566,7 +606,7 @@ void capture() {
 
 	g_curr_in = 0;
 
-	while (g_running) {
+	while (g_connected && g_running) {
 		memset(g_in_buf[g_curr_in], 0, BUF_SIZE);
 		g_read[g_curr_in] = 0;
 
@@ -594,7 +634,8 @@ end:
 		printf("[%s] Close failed.\n", NAME);
 	}
 
-	g_running = false;
+	g_connected = false;
+	goto start;
 }
 
 void map(UCHAR *p_in, UCHAR *p_out) {
@@ -642,19 +683,17 @@ void playback() {
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
 		if (curr_out != prev_out) {
-			if (g_read[curr_out] > FRAME_SIZE_RGB) {
+			if (g_read[curr_out] > FRAME_SIZE_RGB && g_samples.size() < MAX_SAMPLES) {
 				map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[curr_out]);
 				g_samples.emplace(out_buf[curr_out], (g_read[curr_out] - FRAME_SIZE_RGB) / 2);
+			}
 
-				if (g_audio.getStatus() != sf::SoundStream::Playing) {
-					g_audio.play();
-				}
+			if (g_audio.getStatus() != sf::SoundStream::Playing) {
+				g_audio.play();
 			}
 
 			prev_out = curr_out;
 		}
-
-		sf::sleep(sf::seconds(0));
 	}
 
 	g_audio.stop();
@@ -671,7 +710,7 @@ void render() {
 	Screen joint_screen(&gp_joint_blur, &gp_joint_crop, &gp_joint_rotation, &gp_joint_scale);
 
 	if (!g_skip_io) {
-		g_skip_io = !load("./" + std::string(NAME) + ".conf");
+		load(g_conf_dir + "/" + std::string(NAME) + ".conf");
 	}
 
 	top_screen.build(Screen::Type::TOP, 0, TOP_WIDTH_3DS, g_split);
@@ -727,8 +766,6 @@ void render() {
 
 			prev_out = curr_out;
 		}
-
-		sf::sleep(sf::seconds(0));
 	}
 
 	thread.join();
@@ -738,7 +775,7 @@ void render() {
 	joint_screen.m_win.close();
 
 	if (!g_skip_io) {
-		save("./" + std::string(NAME) + ".conf");
+		save(g_conf_dir + "/" + std::string(NAME) + ".conf");
 	}
 }
 
@@ -752,10 +789,7 @@ int main(int argc, char **argv) {
 		printf("[%s] Invalid argument \"%s\".\n", NAME, argv[i]);
 	}
 
-	if (!open()) {
-		return -1;
-	}
-
+	g_connected = connect();
 	std::thread thread(capture);
 
 	render();

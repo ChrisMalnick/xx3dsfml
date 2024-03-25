@@ -10,7 +10,6 @@ xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscaptu
 - The ability to rotate the windows independently of each other to either side and even upside down.
 - The ability to crop the windows independently of each other for DS games in both scaled and native resolution.
 - The ability to blur the contents of the windows independently of each other.
-- Smooth, continuous volume controls with separate mute control.
 - A config file that saves all of these settings individually which allows all three windows to have completely different configurations.
 - Four configurable user layouts that can be saved to and loaded from on the fly.
 
@@ -20,9 +19,9 @@ _Note: DS games boot in scaled resolution mode by default. Holding START or SELE
 
 xx3dsfml has two dependencies: [FTDI's D3XX driver](https://ftdichip.com/drivers/d3xx-drivers/) and [SFML](https://www.sfml-dev.org/).
 
-The D3XX driver can be installed with the provided Makefile as outlined in the __Install__ section below. However, it may also be available in certain package managers/repositories.
+The D3XX driver can be installed with the provided Makefile as outlined in the __Install__ section below. As of now, this is the required way to install the driver in order to fully support the xx3dsfml program. This is because the latest driver (1.0.14) is bugged, so the Makefile will install the previous version (1.0.5) instead.
 
-The native C++ version of SFML, including its development files, also needs to be installed. The simplest way to accomplish this would be using a package manager, for which a popular choice on Mac is [Homebrew](https://brew.sh/).
+The native C++ version of SFML, including its development files, also needs to be installed. The simplest way to accomplish this would be using a package manager, which [Homebrew](https://brew.sh/) is a popular choice for on Mac.
 
 _Note: C++ is the default language for SFML and is not a binding._
 
@@ -30,22 +29,24 @@ _Note: C++ is the default language for SFML and is not a binding._
 
 Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile utilizing the Make utility and g++ compiler is provided with the following functionality:
 
-1. __make__:            This will create the executable which can be executed via the ./xx3dsfml command.
-2. __make clean__:      This will remove all files, including the executable, created by the above command.
-3. __make install__:    This will install the D3XX driver, including its development files.
-4. __make uninstall__:  This will uninstall the D3XX driver, including its development files.
+1. `make`:            This will create a systemwide executable, which can be executed via the `xx3dsfml` command from any directory, and will also create an xx3dsfml user config directory.
+2. `make clean`:      This will remove the systemwide executable along with the xx3dsfml user config directory.
+3. `make install`:    This will install the D3XX driver, including its development files.
+4. `make uninstall`:  This will uninstall the D3XX driver, including its development files.
 
-When executing the install or uninstall Makefile targets, you may be prompted for a password. On Mac, you may also be prompted to install the command line developer tools when attempting to execute the Make utility. Installing this should provide everything that's needed within the provided Makefile.
+When utilizing the Makefile, you may be prompted for a password, and on Mac, you may also be prompted to install the Apple Command Line Developer Tools first. Additionally, on Mac, a command line capable version of 7-Zip is required at this time. This is because the previous version of the D3XX driver (1.0.5) is only available as a DMG file, which 7-Zip is capable of extracting from.
 
 #### Controls
 
+- __C key__:        Toggles the logical connection to the N3DSXL. The N3DSXL is logically connected by default if physically connected at runtime and will be logically disconnected if physically disconnected during runtime.
 - __S key__:        Swaps between split mode and joint mode which splits the screens into separate windows or joins them into a single window respectively.
-- __C key__:        Cycles to the next cropping mode for the focused window. The currently supported cropping modes are for default 3DS, scaled DS, and native DS respectively.
 - __B key__:        Toggles blurring on/off for the focused window. This is only noticeable at 1.5x scale or greater.
 - __- key__:        Decrements the scaling by 0.5x for the focused window. 1.0x is the minimum.
 - __= key__:        Increments the scaling by 0.5x for the focused window. 4.5x is the maximum.
 - __[ key__:        Rotates the focused window 90 degrees counterclockwise.
 - __] key__:        Rotates the focused window 90 degrees clockwise.
+- __; key__:        Cycles to the next cropping mode for the focused window. The currently supported cropping modes are for default 3DS, scaled DS, and native DS respectively.
+- __' key__:        Cycles to the previous cropping mode for the focused window. The currently supported cropping modes are for default 3DS, scaled DS, and native DS respectively.
 - __M key__:        Toggles mute on/off.
 - __, key__:        Decrements the volume by 5 units. 0 is the minimum.
 - __. key__:        Increments the volume by 5 units. 100 is the maximum.
@@ -56,23 +57,21 @@ _Note: The volume is independent of the actual volume level set with the physica
 
 #### Settings
 
-A config file is provided which contains default program settings for the above mentioned controls. These settings are loaded when the program is started and saved when the program is closed. Controls that target the individual windows are saved and loaded independently of each other, meaning that settings for the single window in joint mode as well as the separate windows in split mode are all individually stored in this file.
+When starting the program for the first time, a message indicating a load failure for the xx3dsfml.conf file will be displayed, and the same will occur when attempting to load from any given layout file if it hasn't been saved to before. These files must be created by the program first before they can be loaded from. The program saves its current configuration to the xx3dsfml.conf file when the program is successfully closed, creating the file if it doesn't already exist, and loads from it everytime at startup.
 
-Just as well, four layout files are provided which can be used to save and load configurations quickly and easily. At any time, keys F5 through F8 can be used to save the current configuration to their respective layouts which can then be loaded at any time using the respective keys F1 through F4. Changing the configuration after a layout is loaded will not overwrite it, and the only way to do so would be to press the respective save key after the changes are made. Whatever the configuration is when the program is closed is what will be saved to the config file and loaded when the program is next opened.
+Just as well, the current configuration can be saved to any of the four layout files at any time using keys F5 through F8, creating the given file if it doesn't already exist, which can then be loaded from at any time using keys F1 through F4 respectively. Changing the configuration after a layout is loaded will not overwrite it unless the respective save key is pressed after the changes are made.
+
+_Note: Controls that target the individual windows are saved and loaded independently of each other, meaning that settings for the single window in joint mode as well as the separate windows in split mode are all individually stored in these files._
 
 #### Arguments
 
 The following command line arguments are currently available when running the xx3dsfml executable:
 
-- __--safe__:   Runs the program in safe mode. Settings cannot be loaded from or saved to the config or layout files while in safe mode, forcing the program to use internal defaults instead. Similar behavior occurs when these files are mislocated or the program is executed from a different directory as outlined in the __Notes__ section below.
+- __--safe__:   Runs the program in safe mode. Settings cannot be loaded from or saved to the config or layout files when in this mode, forcing the program to use the internal defaults instead.
 
 #### Notes
 
-- An N3DSXL must be connected when launching the program or else it will close immediately. This doesn't apply to sleep mode.
-- Disconnecting the N3DSXL while the program is running will cause it to close immediately. This doesn't apply to sleep mode.
 - Minimal audio artifacts can occur, albeit very infrequently, and the audio can vary slightly in latency. This is due to the 3DS's non-integer sample rate.
-- The Ofast g++ optimize flag has been added to the Makefile, so when compiling without it, be aware that optimizations may not occur unless explicitly specified.
-- In order to make use of the config and layout files, the xx3dsfml.conf file and presets directory must be kept in the same directory as the xx3dsfml executable, and the xx3dsfml executable must be executed from the same directory where the xx3dsfml.conf file and presets directory reside. This is because the config and layout files are referenced relative to the executable, meaning that they will not be located by the program in either of these scenarios.
 - Occasionally, the software may be unable to create a handle to the device at startup even though it's connected to and recognized by the system. Simply reconnecting the device and restarting the software should resolve the issue.
 - If any issues occur while the device is indirectly connected to the system that isn't resolved by reconnecting the device and restarting the software, please consider connecting the device directly to the system instead.
 
