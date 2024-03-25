@@ -31,7 +31,7 @@ else ifeq (${SYS}, Linux)
 endif
 
 xx3dsfml: xx3dsfml.o
-	g++ xx3dsfml.o -o xx3dsfml -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window
+	g++ xx3dsfml.o -o xx3dsfml -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window 
 	rm xx3dsfml.o
 
 xx3dsfml.o: xx3dsfml.cpp

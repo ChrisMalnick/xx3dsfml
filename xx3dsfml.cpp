@@ -70,6 +70,7 @@
 
 #define FRAMERATE_LIMIT 60
 
+#define FIX_PARTIAL_FIRST_FRAME_NUM 3
 //#define CLOSE_ON_FAIL
 //#define SAFER_QUIT
 
@@ -100,6 +101,7 @@ std::queue<Sample> g_samples;
 std::string g_conf_dir = std::string(std::getenv("HOME")) + "/.config/" + std::string(NAME);
 
 int g_curr_in = 0;
+int g_cooldown_curr_in = FIX_PARTIAL_FIRST_FRAME_NUM;
 
 bool g_is_ready_curr_in = false;
 bool g_connected = false;
@@ -672,11 +674,10 @@ void capture_call(OVERLAPPED overlap[BUF_COUNT]) {
 			return;
 		}
 
-		g_curr_in = inner_curr_in;
-		g_is_ready_curr_in = true;
+		g_curr_in = (inner_curr_in + 1) % BUF_COUNT;
+		if(g_cooldown_curr_in)
+		    g_cooldown_curr_in--;
 	}
-
-	return;
 }
 
 void capture() {
@@ -684,7 +685,7 @@ void capture() {
 	FT_STATUS ftStatus;
 	int inner_curr_in = 0;
 	g_curr_in = inner_curr_in;
-	g_is_ready_curr_in = false;
+	g_cooldown_curr_in = FIX_PARTIAL_FIRST_FRAME_NUM;
 
 	while(g_running) {
 		if (!g_connected) {
@@ -696,7 +697,7 @@ void capture() {
 
 		g_close_success = false;
 		g_connected = false;
-		g_is_ready_curr_in = false;
+		g_cooldown_curr_in = FIX_PARTIAL_FIRST_FRAME_NUM;
 
 		for (inner_curr_in = 0; inner_curr_in < BUF_COUNT; ++inner_curr_in) {
 			ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
@@ -764,7 +765,7 @@ void playback() {
 	while (g_running) {
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
-		if (g_is_ready_curr_in && (curr_out != prev_out)) {
+		if ((!g_cooldown_curr_in) && (curr_out != prev_out)) {
 			loaded_samples = g_samples.size();
 			if(loaded_samples >= AUDIO_LATENCY) {
 				g_samples.pop();
@@ -843,7 +844,7 @@ void render(bool skip_io) {
 
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
-		if (g_is_ready_curr_in && (curr_out != prev_out)) {
+		if ((!g_cooldown_curr_in) && (curr_out != prev_out)) {
 			if(g_read[curr_out] >= FRAME_SIZE_RGB) {
 				map(g_in_buf[curr_out], out_buf);
 				num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
