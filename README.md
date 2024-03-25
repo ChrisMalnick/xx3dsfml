@@ -19,7 +19,7 @@ _Note: DS games boot in scaled resolution mode by default. Holding START or SELE
 
 xx3dsfml has two dependencies: [FTDI's D3XX driver](https://ftdichip.com/drivers/d3xx-drivers/) and [SFML](https://www.sfml-dev.org/).
 
-The D3XX driver can be installed with the provided Makefile as outlined in the __Install__ section below. As of now, this is the required way to install the driver in order to fully support the xx3dsfml program. This is because the latest driver (1.0.14) is bugged, so the Makefile will install the previous version (1.0.5) instead.
+The D3XX driver can be installed with the provided Makefile as outlined in the __Install__ section below. As of now, this is the required way to install the driver in order to fully support the xx3dsfml program. This is because the latest driver (1.0.14) is bugged, so the previous version (1.0.5) will be installed instead.
 
 The native C++ version of SFML, including its development files, also needs to be installed. The simplest way to accomplish this would be using a package manager, which [Homebrew](https://brew.sh/) is a popular choice for on Mac.
 
@@ -57,7 +57,7 @@ _Note: The volume is independent of the actual volume level set with the physica
 
 #### Settings
 
-When starting the program for the first time, a message indicating a load failure for the xx3dsfml.conf file will be displayed, and the same will occur when attempting to load from any given layout file if it hasn't been saved to before. These files must be created by the program first before they can be loaded from. The program saves its current configuration to the xx3dsfml.conf file when the program is successfully closed, creating the file if it doesn't already exist, and loads from it everytime at startup.
+When starting the program for the first time, a message indicating a load failure for the xx3dsfml.conf file will be displayed, and the same will occur when attempting to load from any given layout file if it hasn't been saved to before. These files must be created by the program first before they can be loaded from. The program saves its current configuration to the xx3dsfml.conf file when the program is successfully closed, creating the file if it doesn't already exist, and loads from it every time at startup.
 
 Just as well, the current configuration can be saved to any of the four layout files at any time using keys F5 through F8, creating the given file if it doesn't already exist, which can then be loaded from at any time using keys F1 through F4 respectively. Changing the configuration after a layout is loaded will not overwrite it unless the respective save key is pressed after the changes are made.
 
