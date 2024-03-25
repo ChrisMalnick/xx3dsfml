@@ -33,14 +33,12 @@ xx3dsfml: xx3dsfml.o
 	sudo rm xx3dsfml.o
 	sudo mkdir -p /usr/local/bin
 	sudo mv xx3dsfml /usr/local/bin
-	mkdir -p ~/.config/xx3dsfml/presets
 
 xx3dsfml.o: xx3dsfml.cpp
 	sudo g++ -c xx3dsfml.cpp -o xx3dsfml.o
 
 clean:
 	sudo rm /usr/local/bin/xx3dsfml
-	rm -r ~/.config/xx3dsfml
 
 install:
 	sudo mkdir temp

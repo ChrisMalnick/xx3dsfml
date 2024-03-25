@@ -9,6 +9,7 @@
 #include <SFML/Graphics.hpp>
 
 #include <cstring>
+#include <filesystem>
 
 #include <fstream>
 #include <sstream>
@@ -158,13 +159,15 @@ bool connect() {
 	return true;
 }
 
-bool load(std::string name) {
-	std::ifstream file(name);
+void load(std::string path, std::string name) {
+	std::ifstream file(path + name);
 	std::string line;
 
 	if (!file.good()) {
 		printf("[%s] File \"%s\" load failed.\n", NAME, name.c_str());
-		return false;
+		file.close();
+
+		return;
 	}
 
 	while (std::getline(file, line)) {
@@ -254,14 +257,16 @@ bool load(std::string name) {
 	}
 
 	file.close();
-	return true;
 }
 
-void save(std::string name) {
-	std::ofstream file(name);
+void save(std::string path, std::string name) {
+	std::filesystem::create_directories(path);
+	std::ofstream file(path + name);
 
 	if (!file.good()) {
 		printf("[%s] File \"%s\" save failed.\n", NAME, name.c_str());
+		file.close();
+
 		return;
 	}
 
@@ -452,9 +457,12 @@ public:
 				case sf::Keyboard::F2:
 				case sf::Keyboard::F3:
 				case sf::Keyboard::F4:
-					if (!g_skip_io && (g_init = load(g_conf_dir + "/presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf"))) {
-						g_audio.setVolume(g_mute ? 0 : g_volume);
+					if (!g_skip_io) {
+						load(g_conf_dir + "/presets/", "layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf");
 					}
+
+					g_init = true;
+					g_audio.setVolume(g_mute ? 0 : g_volume);
 
 					break;
 
@@ -463,7 +471,7 @@ public:
 				case sf::Keyboard::F7:
 				case sf::Keyboard::F8:
 					if (!g_skip_io) {
-						save(g_conf_dir + "/presets/layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F5 + 1) + ".conf");
+						save(g_conf_dir + "/presets/", "layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F5 + 1) + ".conf");
 					}
 
 					break;
@@ -710,7 +718,7 @@ void render() {
 	Screen joint_screen(&gp_joint_blur, &gp_joint_crop, &gp_joint_rotation, &gp_joint_scale);
 
 	if (!g_skip_io) {
-		load(g_conf_dir + "/" + std::string(NAME) + ".conf");
+		load(g_conf_dir + "/", std::string(NAME) + ".conf");
 	}
 
 	top_screen.build(Screen::Type::TOP, 0, TOP_WIDTH_3DS, g_split);
@@ -775,7 +783,7 @@ void render() {
 	joint_screen.m_win.close();
 
 	if (!g_skip_io) {
-		save(g_conf_dir + "/" + std::string(NAME) + ".conf");
+		save(g_conf_dir + "/", std::string(NAME) + ".conf");
 	}
 }
 
