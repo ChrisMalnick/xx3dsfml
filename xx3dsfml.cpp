@@ -72,7 +72,6 @@
 
 //#define CLOSE_ON_FAIL
 //#define SAFER_QUIT
-//#define TRY_HANDLE_BAD_READS
 
 enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS, END };
 
@@ -631,28 +630,6 @@ bool connect(bool print_failed) {
 	return true;
 }
 
-void bad_read_close() {
-	g_close_success = false;
-	g_connected = false;
-	#ifdef TRY_HANDLE_BAD_READS
-	g_close_success = true;
-	// Due to a mistake in how FT_ReadPipeAsync works,
-	// you need to re-create a device before you can close this down... :/
-	// Though the create method itself can also get stuck if you insert
-	// the device back at the wrong moment! This is honestly madness... :/
-	// The right way to do this would be asking the user to press a key
-	// once the device has been re-connected properly... :/
-	// The only saving grace is that this type of error while closing is
-	// somewhat rare, due to the high amount of time spent in FT_ReadPipeAsync.
-	// Still...
-	printf("[%s] Please reconnect the console so the program may be properly closed!\n", NAME);
-	while(!g_connected) {
-		sf::sleep(sf::milliseconds(100));
-		g_connected = connect(false);
-	}
-	#endif
-}
-
 void capture() {
 	OVERLAPPED overlap[BUF_COUNT];
 	FT_STATUS ftStatus;
@@ -660,7 +637,6 @@ void capture() {
 	g_curr_in = inner_curr_in;
 
 start:
-	bool bad_close = false;
 	while (!g_connected) {
 		if (!g_running) {
 			return;
@@ -672,7 +648,6 @@ start:
 		ftStatus = FT_InitializeOverlapped(g_handle, &overlap[inner_curr_in]);
 		if (ftStatus) {
 			printf("[%s] Initialize failed.\n", NAME);
-			bad_close = true;
 			goto end;
 		}
 	}
@@ -682,8 +657,6 @@ start:
 		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[inner_curr_in], BUF_SIZE, &g_read[inner_curr_in], &overlap[inner_curr_in]);
 		if (ftStatus != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
-			bad_read_close();
-			bad_close = true;
 			goto end;
 		}
 	}
@@ -696,8 +669,6 @@ start:
 		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[inner_curr_in], BUF_SIZE, &g_read[inner_curr_in], &overlap[inner_curr_in]);
 		if (ftStatus != FT_IO_PENDING) {
 			printf("[%s] Read failed.\n", NAME);
-			bad_read_close();
-			bad_close = true;
 			goto end;
 		}
 
@@ -709,7 +680,6 @@ start:
 		ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
 		if(FT_FAILED(ftStatus)) {
 			printf("[%s] USB error.\n", NAME);
-			bad_close = true;
 			goto end;
 		}
 		if (ftStatus == FT_IO_INCOMPLETE && FT_AbortPipe(g_handle, BULK_IN)) {
@@ -727,11 +697,7 @@ end:
 	g_connected = false;
 	for (inner_curr_in = 0; inner_curr_in < BUF_COUNT; ++inner_curr_in) {
 		#ifndef SAFER_QUIT
-		if(!bad_close) {
-			ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
-			if(FT_FAILED(ftStatus))
-				bad_close = true;
-		}
+		ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
 		#endif
 		if (FT_ReleaseOverlapped(g_handle, &overlap[inner_curr_in])) {
 			printf("[%s] Release failed.\n", NAME);
