@@ -19,9 +19,9 @@ _Note: DS games boot in scaled resolution mode by default. Holding START or SELE
 
 xx3dsfml has two dependencies: [FTDI's D3XX driver](https://ftdichip.com/drivers/d3xx-drivers/) and [SFML](https://www.sfml-dev.org/).
 
-The D3XX driver can be installed with the provided Makefile as outlined in the __Install__ section below. As of now, this is the required way to install the driver in order to fully support the xx3dsfml program. This is because the latest driver (1.0.14) is bugged, so the previous version (1.0.5) will be installed instead.
+The D3XX driver can be installed with the provided Makefile as outlined in the __Install__ section below. As of now, this is the required way to install the driver in order to fully support the xx3dsfml program. This is because the latest driver (1.0.14) is bugged, so the previous version (1.0.5) will be installed instead. The latest version can still be used, but it will be unstable and prone to crashing in certain circumstances.
 
-The native C++ version of SFML, including its development files, also needs to be installed. The simplest way to accomplish this would be using a package manager, which [Homebrew](https://brew.sh/) is a popular choice for on Mac.
+The native C++ version of SFML, including its development files, also needs to be installed. The simplest way to accomplish this would be using a package manager, which [Homebrew](https://brew.sh/) is a popular choice for on macOS.
 
 _Note: C++ is the default language for SFML and is not a binding._
 
@@ -34,7 +34,7 @@ Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile 
 3. `make install`:    This will install the D3XX driver, including its development files.
 4. `make uninstall`:  This will uninstall the D3XX driver, including its development files.
 
-When utilizing the Makefile, you may be prompted for a password, and on Mac, you may also be prompted to install the Apple Command Line Developer Tools first. Additionally, on Mac, a command line capable version of 7-Zip is required at this time. This is because the previous version of the D3XX driver (1.0.5) is only available as a DMG file, which 7-Zip is capable of extracting from.
+When utilizing the Makefile, you may be prompted for a password, and on macOS, you may also be prompted to install the Apple Command Line Developer Tools first. Additionally, on macOS, a command line capable version of 7-Zip is required at this time. This is because the previous version of the D3XX driver (1.0.5) is only available as a DMG file, which 7-Zip is capable of extracting from.
 
 #### Controls
 
