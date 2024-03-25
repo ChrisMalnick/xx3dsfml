@@ -46,7 +46,7 @@
 #define SAMPLE_SIZE_8 2192
 #define SAMPLE_SIZE_16 (SAMPLE_SIZE_8 / 2)
 
-#define MAX_SAMPLES 4
+#define SAMPLE_LIMIT 4
 
 #define BUF_COUNT 8
 #define BUF_SIZE (FRAME_SIZE_RGB + SAMPLE_SIZE_8)
@@ -691,7 +691,7 @@ void playback() {
 		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
 		if (curr_out != prev_out) {
-			if (g_read[curr_out] > FRAME_SIZE_RGB && g_samples.size() < MAX_SAMPLES) {
+			if (g_read[curr_out] > FRAME_SIZE_RGB && g_samples.size() < SAMPLE_LIMIT) {
 				map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[curr_out]);
 				g_samples.emplace(out_buf[curr_out], (g_read[curr_out] - FRAME_SIZE_RGB) / 2);
 			}
