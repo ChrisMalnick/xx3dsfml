@@ -31,6 +31,7 @@ endif
 xx3dsfml: xx3dsfml.o
 	sudo g++ xx3dsfml.o -o xx3dsfml -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window
 	sudo rm xx3dsfml.o
+	sudo mkdir -p /usr/local/bin
 	sudo mv xx3dsfml /usr/local/bin
 	mkdir -p ~/.config/xx3dsfml/presets
 
