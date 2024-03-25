@@ -40,6 +40,7 @@
 #define FRAME_SIZE_RGB (CAP_RES * 3)
 #define FRAME_SIZE_RGBA (CAP_RES * 4)
 
+#define AUDIO_BUF_COUNT 7
 #define AUDIO_CHANNELS 2
 #define SAMPLE_RATE 32734
 
@@ -64,6 +65,8 @@
 
 enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS, END };
 
+//#define CLOSE_ON_FAIL
+
 struct Sample {
 	Sample(sf::Int16 *bytes, std::size_t size) : bytes(bytes), size(size) {}
 
@@ -85,11 +88,12 @@ int g_curr_in = 0;
 
 bool g_connected = false;
 bool g_running = true;
+bool g_close_success = true;
 
 bool g_split, g_swap = false;
 bool g_init = true;
 
-bool g_skip_io, g_vsync = false;
+bool g_skip_io = false, g_vsync = false;
 
 int g_volume = 50;
 bool g_mute = false;
@@ -99,11 +103,15 @@ Crop *gp_top_crop, *gp_bot_crop, *gp_joint_crop;
 int *gp_top_rotation, *gp_bot_rotation, *gp_joint_rotation;
 double *gp_top_scale, *gp_bot_scale, *gp_joint_scale;
 
+bool connect(void);
+
 class Audio : public sf::SoundStream {
 public:
 	Audio() {
 		sf::SoundStream::initialize(AUDIO_CHANNELS, SAMPLE_RATE);
+		#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
 		sf::SoundStream::setProcessingInterval(sf::milliseconds(0));
+		#endif
 	}
 
 private:
@@ -124,41 +132,6 @@ private:
 };
 
 Audio g_audio;
-
-bool connect() {
-	if (g_connected) {
-		return false;
-	}
-
-	if (FT_Create(const_cast<char*>(PRODUCT_1), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
-		if (FT_Create(const_cast<char*>(PRODUCT_2), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
-			printf("[%s] Create failed.\n", NAME);
-			return false;
-		}
-	}
-
-	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
-	ULONG written = 0;
-
-	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
-		printf("[%s] Write failed.\n", NAME);
-		return false;
-	}
-
-	buf[1] = 0x00;
-
-	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
-		printf("[%s] Write failed.\n", NAME);
-		return false;
-	}
-
-	if (FT_SetStreamPipe(g_handle, false, false, BULK_IN, BUF_SIZE)) {
-		printf("[%s] Stream failed.\n", NAME);
-		return false;
-	}
-
-	return true;
-}
 
 void load(std::string path, std::string name) {
 	std::ifstream file(path + name);
@@ -557,8 +530,6 @@ private:
 		this->m_win.create(sf::VideoMode(this->m_width * this->m_scale, this->m_height * this->m_scale), this->title());
 		this->m_win.setView(this->m_view);
 
-		this->m_win.setKeyRepeatEnabled(false);
-
 		g_vsync ? this->m_win.setVerticalSyncEnabled(true) : this->m_win.setFramerateLimit(FRAMERATE_LIMIT);
 	}
 
@@ -589,23 +560,53 @@ private:
 	}
 };
 
+bool connect(void) {
+	if (g_connected) {
+		g_close_success = false;
+		return false;
+	}
+	
+	if(!g_close_success)
+		return false;
+
+	if (FT_Create(const_cast<char*>(PRODUCT_1), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
+		if (FT_Create(const_cast<char*>(PRODUCT_2), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
+			printf("[%s] Create failed.\n", NAME);
+			return false;
+		}
+	}
+
+	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
+	ULONG written = 0;
+
+	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
+		printf("[%s] Write failed.\n", NAME);
+		return false;
+	}
+
+	buf[1] = 0x00;
+
+	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
+		printf("[%s] Write failed.\n", NAME);
+		return false;
+	}
+
+	if (FT_SetStreamPipe(g_handle, false, false, BULK_IN, BUF_SIZE)) {
+		printf("[%s] Stream failed.\n", NAME);
+		return false;
+	}
+
+	return true;
+}
+
 void capture() {
 	OVERLAPPED overlap[BUF_COUNT];
 
 start:
-	g_curr_in = 0;
-
 	while (!g_connected) {
 		if (!g_running) {
 			return;
 		}
-
-		memset(g_in_buf[g_curr_in], 0, BUF_SIZE);
-		g_read[g_curr_in] = 0;
-
-		sf::sleep(sf::milliseconds(100));
-
-		g_curr_in = (g_curr_in + 1) % BUF_COUNT;
 	}
 
 	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
@@ -618,9 +619,6 @@ start:
 	g_curr_in = 0;
 
 	while (g_connected && g_running) {
-		memset(g_in_buf[g_curr_in], 0, BUF_SIZE);
-		g_read[g_curr_in] = 0;
-
 		if (FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true) == FT_IO_INCOMPLETE && FT_AbortPipe(g_handle, BULK_IN)) {
 			printf("[%s] Abort failed.\n", NAME);
 			goto end;
@@ -636,6 +634,7 @@ start:
 
 end:
 	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
+		FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true);
 		if (FT_ReleaseOverlapped(g_handle, &overlap[g_curr_in])) {
 			printf("[%s] Release failed.\n", NAME);
 		}
@@ -644,8 +643,12 @@ end:
 	if (FT_Close(g_handle)) {
 		printf("[%s] Close failed.\n", NAME);
 	}
-
+	
+	g_close_success = true;
 	g_connected = false;
+	#ifdef CLOSE_ON_FAIL
+	g_running = false;
+	#endif
 	goto start;
 }
 

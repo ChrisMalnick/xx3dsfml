@@ -2,6 +2,8 @@ SYS := ${shell uname -s}
 ARC := ${shell uname -m}
 VER := 1.0.5
 TAR := libftd3xx-linux-arm-v6-hf-${VER}.tgz
+ZIP := echo "ZIP NOT SET"
+UPD := echo "UPD NOT SET"
 ifeq (${SYS}, Darwin)
 	EXT := dylib
 	LIB := libftd3xx.${VER}.${EXT}
@@ -29,18 +31,23 @@ else ifeq (${SYS}, Linux)
 endif
 
 xx3dsfml: xx3dsfml.o
-	sudo g++ xx3dsfml.o -o xx3dsfml -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window
-	sudo rm xx3dsfml.o
+	g++ xx3dsfml.o -o xx3dsfml -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window
+	rm xx3dsfml.o
+
+xx3dsfml.o: xx3dsfml.cpp
+	g++ -c xx3dsfml.cpp -o xx3dsfml.o
+
+clean:
+	rm xx3dsfml xx3dsfml.o
+
+install: uninstall install_ftd3xx clean xx3dsfml
 	sudo mkdir -p /usr/local/bin
 	sudo mv xx3dsfml /usr/local/bin
 
-xx3dsfml.o: xx3dsfml.cpp
-	sudo g++ -c xx3dsfml.cpp -o xx3dsfml.o
-
-clean:
+uninstall: uninstall_ftd3xx
 	sudo rm /usr/local/bin/xx3dsfml
 
-install:
+install_ftd3xx:
 	sudo mkdir temp
 	sudo curl https://ftdichip.com/wp-content/uploads/2023/03/${TAR} -o temp/${TAR}
 	sudo ${ZIP}
@@ -54,6 +61,6 @@ install:
 	sudo chmod 644 /usr/local/include/libftd3xx/*.h
 	sudo rm -r temp
 
-uninstall:
+uninstall_ftd3xx:
 	sudo rm /usr/local/lib/libftd3xx.*
 	sudo rm -r /usr/local/include/libftd3xx
