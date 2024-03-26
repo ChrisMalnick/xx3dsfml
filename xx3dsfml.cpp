@@ -13,6 +13,7 @@
 #include <sstream>
 #include <cstring>
 #include <thread>
+#include <mutex>
 #include <queue>
 
 #define NAME "xx3dsfml"
@@ -35,7 +36,6 @@
 
 // This isn't precise, however we can use it...
 #define USB_FPS 60
-#define BAD_USB_FPS 25
 
 #define CAP_RES (CAP_WIDTH * CAP_HEIGHT)
 
@@ -50,7 +50,6 @@
 
 #define USB_NUM_CHECKS 3
 #define USB_CHECKS_PER_SECOND ((USB_FPS + (USB_FPS / 12)) * USB_NUM_CHECKS)
-#define BAD_USB_CHECKS_PER_SECOND ((BAD_USB_FPS + (BAD_USB_FPS / 12)) * USB_NUM_CHECKS)
 
 #define SAMPLE_SIZE_8 2192
 #define SAMPLE_SIZE_16 (SAMPLE_SIZE_8 / 2)
@@ -113,6 +112,9 @@ bool g_vsync = false;
 
 int g_volume = 50;
 bool g_mute = false;
+
+std::mutex g_video_wait;
+std::mutex g_audio_wait;
 
 bool connect(bool);
 
@@ -676,7 +678,9 @@ void capture_call(OVERLAPPED overlap[BUF_COUNT]) {
 
 		g_curr_in = (inner_curr_in + 1) % BUF_COUNT;
 		if(g_cooldown_curr_in)
-		    g_cooldown_curr_in--;
+			g_cooldown_curr_in--;
+		g_video_wait.unlock();
+		g_audio_wait.unlock();
 	}
 }
 
@@ -689,7 +693,7 @@ void capture() {
 
 	while(g_running) {
 		if (!g_connected) {
-			sf::sleep(sf::milliseconds(1000/BAD_USB_CHECKS_PER_SECOND));
+			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
 			continue;
 		}
 
@@ -698,6 +702,8 @@ void capture() {
 		g_close_success = false;
 		g_connected = false;
 		g_cooldown_curr_in = FIX_PARTIAL_FIRST_FRAME_NUM;
+		g_video_wait.unlock();
+		g_audio_wait.unlock();
 
 		for (inner_curr_in = 0; inner_curr_in < BUF_COUNT; ++inner_curr_in) {
 			ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
@@ -758,57 +764,48 @@ void playback() {
 	int curr_out, prev_out = BUF_COUNT - 1, audio_buf_counter = 0, num_consecutive_audio_stop = 0;
 
 	audio.update_volume(g_volume, g_mute);
-	volatile int num_sleeps = 0;
-	int num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
 	volatile int loaded_samples;
 
 	while (g_running) {
-		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
+		if(g_connected) {
+			g_audio_wait.lock();
+			curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
-		if ((!g_cooldown_curr_in) && (curr_out != prev_out)) {
+			if ((!g_cooldown_curr_in) && (curr_out != prev_out)) {
+				loaded_samples = g_samples.size();
+				if ((g_read[curr_out] > FRAME_SIZE_RGB) && (loaded_samples < AUDIO_LATENCY)) {
+					int n_samples = (g_read[curr_out] - FRAME_SIZE_RGB) / 2;
+					if(n_samples > SAMPLE_SIZE_16) {
+						n_samples = SAMPLE_SIZE_16;
+					}
+					map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[audio_buf_counter], n_samples);
+					g_samples.emplace(out_buf[audio_buf_counter], n_samples);
+					if(++audio_buf_counter == AUDIO_BUF_COUNT) {
+						audio_buf_counter = 0;
+					}
+				}
+				prev_out = curr_out;
+			}
+			
 			loaded_samples = g_samples.size();
-			if(loaded_samples >= AUDIO_LATENCY) {
-				g_samples.pop();
-			}
-			if (g_read[curr_out] > FRAME_SIZE_RGB) {
-				int n_samples = (g_read[curr_out] - FRAME_SIZE_RGB) / 2;
-				if(n_samples > SAMPLE_SIZE_16) {
-					n_samples = SAMPLE_SIZE_16;
+			if (audio.getStatus() != sf::SoundStream::Playing) {
+				if (loaded_samples > 0) {
+					num_consecutive_audio_stop++;
+					if (num_consecutive_audio_stop > AUDIO_FAILURE_THRESHOLD) {
+						audio.stop();
+						audio.~Audio();
+						::new(&audio) Audio();
+					}
+					audio.play();
 				}
-				map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[audio_buf_counter], n_samples);
-				g_samples.emplace(out_buf[audio_buf_counter], n_samples);
-				if(++audio_buf_counter == AUDIO_BUF_COUNT) {
-					audio_buf_counter = 0;
-				}
-				num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
 			}
-			else if(g_read[curr_out] < FRAME_SIZE_RGB){
-				num_usb_checks_per_second = BAD_USB_CHECKS_PER_SECOND;
-			}
-			num_sleeps = 0;
-			prev_out = curr_out;
-		}
-		
-		loaded_samples = g_samples.size();
-		if (audio.getStatus() != sf::SoundStream::Playing) {
-			if (loaded_samples > 0) {
-				num_consecutive_audio_stop++;
-				if (num_consecutive_audio_stop > AUDIO_FAILURE_THRESHOLD) {
-					audio.stop();
-					audio.~Audio();
-					::new(&audio) Audio();
-				}
-				audio.play();
+			else {
+				audio.update_volume(g_volume, g_mute);
+				num_consecutive_audio_stop = 0;
 			}
 		}
 		else {
-			audio.update_volume(g_volume, g_mute);
-			num_consecutive_audio_stop = 0;
-		}
-
-		if((num_sleeps < USB_NUM_CHECKS) || (!g_connected)) {
-			sf::sleep(sf::milliseconds(1000/num_usb_checks_per_second));
-			++num_sleeps;
+			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
 		}
 	}
 
@@ -818,8 +815,6 @@ void playback() {
 void render(bool skip_io) {
 	UCHAR out_buf[FRAME_SIZE_RGBA];
 	int curr_out, prev_out = BUF_COUNT - 1;
-	volatile int num_sleeps = 0;
-	int num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
 	bool loaded_split = false;
 	bool re_init = true;
 
@@ -842,49 +837,52 @@ void render(bool skip_io) {
 
 	while (g_running) {
 
-		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
+		if(g_connected) {
+			g_video_wait.lock();
+			curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
-		if ((!g_cooldown_curr_in) && (curr_out != prev_out)) {
-			if(g_read[curr_out] >= FRAME_SIZE_RGB) {
-				map(g_in_buf[curr_out], out_buf);
-				num_usb_checks_per_second = USB_CHECKS_PER_SECOND;
+			if ((!g_cooldown_curr_in) && (curr_out != prev_out)) {
+				if(g_read[curr_out] >= FRAME_SIZE_RGB) {
+					map(g_in_buf[curr_out], out_buf);
+				}
+				else {
+					memset(out_buf, 0, FRAME_SIZE_RGBA);
+				}
+
+				g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
+
+				if (re_init) {
+					top_screen.reset();
+					bot_screen.reset();
+					joint_screen.reset();
+					re_init = false;
+				}
+
+				if (loaded_split != g_split) {
+					top_screen.toggle();
+					bot_screen.toggle();
+					joint_screen.toggle();
+
+					top_screen.move();
+					bot_screen.move();
+
+					loaded_split = g_split;
+				}
+
+				if (g_split) {
+					top_screen.draw();
+					bot_screen.draw();
+				}
+
+				else {
+					joint_screen.draw(&top_screen.m_in_rect, &bot_screen.m_in_rect);
+				}
+
+				prev_out = curr_out;
 			}
-			else {
-				memset(out_buf, 0, FRAME_SIZE_RGBA);
-				num_usb_checks_per_second = BAD_USB_CHECKS_PER_SECOND;
-			}
-
-			g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
-
-			if (re_init) {
-				top_screen.reset();
-				bot_screen.reset();
-				joint_screen.reset();
-				re_init = false;
-			}
-
-			if (loaded_split != g_split) {
-				top_screen.toggle();
-				bot_screen.toggle();
-				joint_screen.toggle();
-
-				top_screen.move();
-				bot_screen.move();
-
-				loaded_split = g_split;
-			}
-
-			if (g_split) {
-				top_screen.draw();
-				bot_screen.draw();
-			}
-
-			else {
-				joint_screen.draw(&top_screen.m_in_rect, &bot_screen.m_in_rect);
-			}
-
-			prev_out = curr_out;
-			num_sleeps = 0;
+		}
+		else {
+			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
 		}
 
 		int load_index = 0;
@@ -904,13 +902,6 @@ void render(bool skip_io) {
 				save(g_conf_dir + "/presets/", "layout" + std::to_string(save_index) + ".conf", top_screen.m_info, bot_screen.m_info, joint_screen.m_info);
 			}
 		}
-
-		if((num_sleeps < USB_NUM_CHECKS) || (!g_connected)) {
-			sf::sleep(sf::milliseconds(1000/num_usb_checks_per_second));
-			++num_sleeps;
-		}
-
-		sf::sleep(sf::milliseconds(0));
 	}
 
 	thread.join();
