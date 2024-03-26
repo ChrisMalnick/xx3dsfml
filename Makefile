@@ -3,17 +3,16 @@ ARC := ${shell uname -m}
 VER := 1.0.5
 TAR := libftd3xx-linux-arm-v6-hf-${VER}.tgz
 ZIP := echo "ZIP NOT SET"
-UPD := echo "UPD NOT SET"
+FTD3XX_FOLDER := ftd3xx
+URL_TIME := 2023/03
 ifeq (${SYS}, Darwin)
 	EXT := dylib
-	LIB := libftd3xx.${VER}.${EXT}
-	UPD := update_dyld_shared_cache
+	LIB := libftd3xx-static.a
 	TAR := d3xx-osx.${VER}.dmg
-	ZIP := 7z x temp/${TAR} -otemp
+	ZIP := 7z x ${FTD3XX_FOLDER}/downloads/${TAR} -o${FTD3XX_FOLDER}/downloads
 else ifeq (${SYS}, Linux)
 	EXT := so
-	LIB := libftd3xx.${EXT}.$(VER)
-	UPD := ldconfig
+	LIB := libftd3xx-static.a
 	ifeq (${ARC}, $(filter aarch% arm%, ${ARC}))
 		ifeq (${ARC}, $(filter arm64% %64 armv8% %v8, ${ARC}))
 			TAR := libftd3xx-linux-arm-v8-${VER}.tgz
@@ -27,40 +26,32 @@ else ifeq (${SYS}, Linux)
 			TAR := libftd3xx-linux-x86_32-${VER}.tgz
 		endif
 	endif
-	ZIP := tar -xzf temp/${TAR} --strip-components 1 -C temp
+	ZIP := tar -xzf ${FTD3XX_FOLDER}/downloads/${TAR} --strip-components 1 -C ${FTD3XX_FOLDER}/downloads
 endif
 
 xx3dsfml: xx3dsfml.o
-	g++ xx3dsfml.o -o xx3dsfml -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window 
-	rm xx3dsfml.o
+	g++ xx3dsfml.o -o xx3dsfml ${FTD3XX_FOLDER}/libftd3xx-static.a -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window
 
 xx3dsfml.o: xx3dsfml.cpp
-	g++ -c xx3dsfml.cpp -o xx3dsfml.o
+	g++ -I ${FTD3XX_FOLDER} -c xx3dsfml.cpp -o xx3dsfml.o
 
 clean:
-	rm xx3dsfml xx3dsfml.o
+	rm -f xx3dsfml *.o
 
-install: uninstall install_ftd3xx clean xx3dsfml
+install: uninstall clean xx3dsfml
 	sudo mkdir -p /usr/local/bin
 	sudo mv xx3dsfml /usr/local/bin
 
 uninstall: uninstall_ftd3xx
-	sudo rm /usr/local/bin/xx3dsfml
+	sudo rm -f /usr/local/bin/xx3dsfml
 
-install_ftd3xx:
-	sudo mkdir temp
-	sudo curl https://ftdichip.com/wp-content/uploads/2023/03/${TAR} -o temp/${TAR}
-	sudo ${ZIP}
-	sudo mkdir -p /usr/local/lib
-	sudo cp temp/${LIB} /usr/local/lib
-	sudo chmod 755 /usr/local/lib/${LIB}
-	sudo ln -sf /usr/local/lib/${LIB} /usr/local/lib/libftd3xx.${EXT}
-	sudo ${UPD}
-	sudo mkdir -p /usr/local/include/libftd3xx
-	sudo cp temp/*.h /usr/local/include/libftd3xx
-	sudo chmod 644 /usr/local/include/libftd3xx/*.h
-	sudo rm -r temp
+download_ftd3xx: remove_ftd3xx
+	mkdir -p ${FTD3XX_FOLDER}/downloads
+	curl https://ftdichip.com/wp-content/uploads/${URL_TIME}/${TAR} -o ${FTD3XX_FOLDER}/downloads/${TAR}
+	${ZIP}
+	cp ${FTD3XX_FOLDER}/downloads/${LIB} ${FTD3XX_FOLDER}
+	cp ${FTD3XX_FOLDER}/downloads/*.h ${FTD3XX_FOLDER}
+	rm -fr ${FTD3XX_FOLDER}/downloads
 
-uninstall_ftd3xx:
-	sudo rm /usr/local/lib/libftd3xx.*
-	sudo rm -r /usr/local/include/libftd3xx
+remove_ftd3xx:
+	rm -fr ${FTD3XX_FOLDER}

@@ -3,7 +3,7 @@
  * Copyright 2023 Chris Malnick. All rights reserved.
  */
 
-#include <libftd3xx/ftd3xx.h>
+#include "ftd3xx.h"
 
 #include <SFML/Audio.hpp>
 #include <SFML/Graphics.hpp>
