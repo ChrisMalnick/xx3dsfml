@@ -391,7 +391,11 @@ public:
 					this->m_out_tex.setSmooth(this->m_info.is_blurred = !this->m_info.is_blurred);
 					break;
 
+				#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
 				case sf::Keyboard::Hyphen:
+				#else
+				case sf::Keyboard::Dash:
+				#endif
 					this->m_info.scaling -= 0.5;
 					if (this->m_info.scaling < 1.25)
 						this->m_info.scaling = 1.0;
@@ -419,7 +423,11 @@ public:
 
 					break;
 
+				#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
 				case sf::Keyboard::Apostrophe:
+				#else
+				case sf::Keyboard::Quote:
+				#endif
 					this->m_info.crop_kind = static_cast<Crop>((this->m_info.crop_kind + 1) % Crop::END);
 
 					this->crop();
@@ -427,7 +435,12 @@ public:
 
 					break;
 
+
+				#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
 				case sf::Keyboard::Semicolon:
+				#else
+				case sf::Keyboard::SemiColon:
+				#endif
 					this->m_info.crop_kind = static_cast<Crop>(((this->m_info.crop_kind - 1) % Crop::END + Crop::END) % Crop::END);
 
 					this->crop();

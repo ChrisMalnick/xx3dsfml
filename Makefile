@@ -30,7 +30,7 @@ else ifeq (${SYS}, Linux)
 endif
 
 xx3dsfml: xx3dsfml.o
-	g++ xx3dsfml.o -o xx3dsfml -std=c++17 ${FTD3XX_FOLDER}/libftd3xx-static.a -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window -lpthread
+	g++ xx3dsfml.o -o xx3dsfml -std=c++17 ${FTD3XX_FOLDER}/libftd3xx-static.a -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window -lpthread
 
 xx3dsfml.o: xx3dsfml.cpp
 	g++ -std=c++17 -I ${FTD3XX_FOLDER} -c xx3dsfml.cpp -o xx3dsfml.o
