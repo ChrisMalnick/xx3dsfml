@@ -67,7 +67,8 @@ _Note: Controls that target the individual windows are saved and loaded independ
 
 The following command line arguments are currently available when running the xx3dsfml executable:
 
-- `--safe`:   Runs the program in safe mode. Settings cannot be loaded from or saved to the config or layout files when in this mode, forcing the program to use the internal defaults instead.
+- `--safe`:     Runs the program in safe mode. Settings cannot be loaded from or saved to the config or layout files when in this mode, forcing the program to use the internal defaults instead.
+- `--vsync`:    Runs the program in vsync mode. By default, the program runs with a frame rate limit of 60 FPS, matching the 3DS itself. Using this option will force the program to run with a frame rate limit that matches the refresh rate of the monitor, which may lead to a decrease in system performance.
 
 #### Notes
 

@@ -46,8 +46,6 @@
 #define SAMPLE_SIZE_8 2192
 #define SAMPLE_SIZE_16 (SAMPLE_SIZE_8 / 2)
 
-#define SAMPLE_LIMIT 4
-
 #define BUF_COUNT 8
 #define BUF_SIZE (FRAME_SIZE_RGB + SAMPLE_SIZE_8)
 
@@ -60,6 +58,9 @@
 #define HEIGHT_DS 192
 
 #define DELTA_HEIGHT_DS (HEIGHT_3DS - HEIGHT_DS)
+
+#define FRAMERATE_LIMIT 60
+#define SAMPLE_LIMIT 4
 
 enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS, END };
 
@@ -78,20 +79,20 @@ ULONG g_read[BUF_COUNT];
 sf::Texture g_in_tex;
 std::queue<Sample> g_samples;
 
+std::string g_conf_dir = std::string(std::getenv("HOME")) + "/.config/" + std::string(NAME);
+
 int g_curr_in = 0;
 
 bool g_connected = false;
 bool g_running = true;
 
 bool g_split, g_swap = false;
+bool g_init = true;
+
+bool g_skip_io, g_vsync = false;
 
 int g_volume = 50;
 bool g_mute = false;
-
-bool g_init = true;
-bool g_skip_io = false;
-
-std::string g_conf_dir = std::string(std::getenv("HOME")) + "/.config/" + std::string(NAME);
 
 bool *gp_top_blur, *gp_bot_blur, *gp_joint_blur;
 Crop *gp_top_crop, *gp_bot_crop, *gp_joint_crop;
@@ -557,6 +558,8 @@ private:
 		this->m_win.setView(this->m_view);
 
 		this->m_win.setKeyRepeatEnabled(false);
+
+		g_vsync ? this->m_win.setVerticalSyncEnabled(true) : this->m_win.setFramerateLimit(FRAMERATE_LIMIT);
 	}
 
 	void rotate() {
@@ -795,6 +798,11 @@ int main(int argc, char **argv) {
 	for (int i = 1; i < argc; ++i) {
 		if (strcmp(argv[i], "--safe") == 0) {
 			g_skip_io = true;
+			continue;
+		}
+
+		if (strcmp(argv[i], "--vsync") == 0) {
+			g_vsync = true;
 			continue;
 		}
 
