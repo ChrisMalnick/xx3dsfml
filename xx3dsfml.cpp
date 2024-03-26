@@ -702,6 +702,8 @@ void playback() {
 
 			prev_out = curr_out;
 		}
+
+		sf::sleep(sf::milliseconds(0));
 	}
 
 	g_audio.stop();
@@ -774,6 +776,8 @@ void render() {
 
 			prev_out = curr_out;
 		}
+
+		sf::sleep(sf::milliseconds(0));
 	}
 
 	thread.join();
