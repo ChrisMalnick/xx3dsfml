@@ -817,6 +817,7 @@ void render(bool skip_io) {
 	int curr_out, prev_out = BUF_COUNT - 1;
 	bool loaded_split = false;
 	bool re_init = true;
+	bool do_blank_screen = true;
 
 	g_in_tex.create(CAP_WIDTH, CAP_HEIGHT);
 
@@ -880,9 +881,23 @@ void render(bool skip_io) {
 
 				prev_out = curr_out;
 			}
+			do_blank_screen = true;
 		}
 		else {
 			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
+		}
+
+		if((!g_connected) && do_blank_screen) {
+			memset(out_buf, 0, FRAME_SIZE_RGBA);
+			g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
+			if (loaded_split) {
+				top_screen.draw();
+				bot_screen.draw();
+			}
+			else {
+				joint_screen.draw(&top_screen.m_in_rect, &bot_screen.m_in_rect);
+			}
+			do_blank_screen = false;
 		}
 
 		int load_index = 0;
