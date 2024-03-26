@@ -557,7 +557,10 @@ private:
 		this->m_win.create(sf::VideoMode(this->m_width * this->m_info.scaling, this->m_height * this->m_info.scaling), this->title());
 		this->m_win.setView(this->m_view);
 
-		g_vsync ? this->m_win.setVerticalSyncEnabled(true) : this->m_win.setFramerateLimit(FRAMERATE_LIMIT);
+		if(this->m_stype == Screen::ScreenType::JOINT)
+			g_vsync ? this->m_win.setVerticalSyncEnabled(true) : this->m_win.setFramerateLimit(FRAMERATE_LIMIT);
+		else
+			this->m_win.setFramerateLimit(FRAMERATE_LIMIT);
 	}
 
 	void rotate() {
