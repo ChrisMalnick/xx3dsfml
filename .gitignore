@@ -1,0 +1,7 @@
+# Byte-compiled / optimized / DLL files
+*.o
+xx3dsfml
+*.conf
+*.a
+presets/
+ftd3xx/

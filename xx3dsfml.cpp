@@ -3,18 +3,17 @@
  * Copyright 2023 Chris Malnick. All rights reserved.
  */
 
-#include <libftd3xx/ftd3xx.h>
+#include "ftd3xx.h"
 
 #include <SFML/Audio.hpp>
 #include <SFML/Graphics.hpp>
 
-#include <cstring>
 #include <filesystem>
-
 #include <fstream>
 #include <sstream>
-
+#include <cstring>
 #include <thread>
+#include <mutex>
 #include <queue>
 
 #define NAME "xx3dsfml"
@@ -35,13 +34,22 @@
 #define CAP_WIDTH HEIGHT_3DS
 #define CAP_HEIGHT (TOP_WIDTH_3DS + BOT_WIDTH_3DS)
 
+// This isn't precise, however we can use it...
+#define USB_FPS 60
+
 #define CAP_RES (CAP_WIDTH * CAP_HEIGHT)
 
 #define FRAME_SIZE_RGB (CAP_RES * 3)
 #define FRAME_SIZE_RGBA (CAP_RES * 4)
 
+#define AUDIO_BUF_COUNT 7
 #define AUDIO_CHANNELS 2
 #define SAMPLE_RATE 32734
+#define AUDIO_LATENCY 4
+#define AUDIO_FAILURE_THRESHOLD 8
+
+#define USB_NUM_CHECKS 3
+#define USB_CHECKS_PER_SECOND ((USB_FPS + (USB_FPS / 12)) * USB_NUM_CHECKS)
 
 #define SAMPLE_SIZE_8 2192
 #define SAMPLE_SIZE_16 (SAMPLE_SIZE_8 / 2)
@@ -60,7 +68,10 @@
 #define DELTA_HEIGHT_DS (HEIGHT_3DS - HEIGHT_DS)
 
 #define FRAMERATE_LIMIT 60
-#define SAMPLE_LIMIT 4
+
+#define FIX_PARTIAL_FIRST_FRAME_NUM 3
+//#define CLOSE_ON_FAIL
+//#define SAFER_QUIT
 
 enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS, END };
 
@@ -69,6 +80,13 @@ struct Sample {
 
 	sf::Int16 *bytes;
 	std::size_t size;
+};
+
+struct ScreenInfo {
+	bool is_blurred;
+	Crop crop_kind;
+	int rotation;
+	double scaling;
 };
 
 FT_HANDLE g_handle;
@@ -82,28 +100,52 @@ std::queue<Sample> g_samples;
 std::string g_conf_dir = std::string(std::getenv("HOME")) + "/.config/" + std::string(NAME);
 
 int g_curr_in = 0;
+int g_cooldown_curr_in = FIX_PARTIAL_FIRST_FRAME_NUM;
 
+bool g_is_ready_curr_in = false;
 bool g_connected = false;
 bool g_running = true;
+bool g_close_success = true;
 
-bool g_split, g_swap = false;
-bool g_init = true;
-
-bool g_skip_io, g_vsync = false;
+bool g_split = false;
+bool g_vsync = false;
 
 int g_volume = 50;
 bool g_mute = false;
 
-bool *gp_top_blur, *gp_bot_blur, *gp_joint_blur;
-Crop *gp_top_crop, *gp_bot_crop, *gp_joint_crop;
-int *gp_top_rotation, *gp_bot_rotation, *gp_joint_rotation;
-double *gp_top_scale, *gp_bot_scale, *gp_joint_scale;
+std::mutex g_video_wait;
+std::mutex g_audio_wait;
+
+bool connect(bool);
 
 class Audio : public sf::SoundStream {
 public:
+	int loaded_volume = -1;
+	bool loaded_mute = false;
+
 	Audio() {
 		sf::SoundStream::initialize(AUDIO_CHANNELS, SAMPLE_RATE);
+		#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
 		sf::SoundStream::setProcessingInterval(sf::milliseconds(0));
+		#endif
+	}
+	
+	void update_volume(int volume, bool mute) {
+		if(mute && (mute == loaded_mute)) {
+			return;
+		}
+		if(mute != loaded_mute) {
+			loaded_mute = mute;
+			loaded_volume = volume;
+		}
+		else if(volume != loaded_volume) {
+			loaded_mute = mute;
+			loaded_volume = volume;
+		}
+		else {
+			return;
+		}
+		setVolume(mute ? 0 : volume);
 	}
 
 private:
@@ -123,44 +165,40 @@ private:
 	void onSeek(sf::Time timeOffset) override {}
 };
 
-Audio g_audio;
-
-bool connect() {
-	if (g_connected) {
-		return false;
+void load_info(std::string key, std::string value, std::string base, ScreenInfo &info) {
+	if(key == (base + "blur")) {
+		info.is_blurred = std::stoi(value);
+		return;
 	}
-
-	if (FT_Create(const_cast<char*>(PRODUCT_1), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
-		if (FT_Create(const_cast<char*>(PRODUCT_2), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
-			printf("[%s] Create failed.\n", NAME);
-			return false;
+	if(key == (base + "crop")) {
+		info.crop_kind = static_cast<Crop>(std::stoi(value));
+		switch(info.crop_kind) {
+			case Crop::DEFAULT_3DS:
+			case Crop::SCALED_DS:
+			case Crop::NATIVE_DS:
+				break;
+			default:
+			info.crop_kind = Crop::DEFAULT_3DS;
 		}
+		return;
 	}
-
-	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
-	ULONG written = 0;
-
-	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
-		printf("[%s] Write failed.\n", NAME);
-		return false;
+	if(key == (base + "rotation")) {
+		info.rotation = std::stoi(value);
+		info.rotation %= 360;
+		info.rotation += (info.rotation < 0) ? 360 : 0;
+		return;
 	}
-
-	buf[1] = 0x00;
-
-	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
-		printf("[%s] Write failed.\n", NAME);
-		return false;
+	if(key == (base + "scale")) {
+		info.scaling = std::stod(value);
+		if(info.scaling < 1.25)
+			info.scaling = 1.0;
+		if(info.scaling > 44.75)
+			info.scaling = 45.0;
+		return;
 	}
-
-	if (FT_SetStreamPipe(g_handle, false, false, BULK_IN, BUF_SIZE)) {
-		printf("[%s] Stream failed.\n", NAME);
-		return false;
-	}
-
-	return true;
 }
 
-void load(std::string path, std::string name) {
+bool load(std::string path, std::string name, ScreenInfo &top_info, ScreenInfo &bottom_info, ScreenInfo &joint_info) {
 	std::ifstream file(path + name);
 	std::string line;
 
@@ -168,7 +206,7 @@ void load(std::string path, std::string name) {
 		printf("[%s] File \"%s\" load failed.\n", NAME, name.c_str());
 		file.close();
 
-		return;
+		return false;
 	}
 
 	while (std::getline(file, line)) {
@@ -179,45 +217,10 @@ void load(std::string path, std::string name) {
 			std::string value;
 
 			if (std::getline(kvp, value)) {
-				if (key == "bot_blur") {
-					*gp_bot_blur = std::stoi(value);
-					continue;
-				}
 
-				if (key == "bot_crop") {
-					*gp_bot_crop = static_cast<Crop>(std::stoi(value));
-					continue;
-				}
-
-				if (key == "bot_rotation") {
-					*gp_bot_rotation = std::stoi(value);
-					continue;
-				}
-
-				if (key == "bot_scale") {
-					*gp_bot_scale = std::stod(value);
-					continue;
-				}
-
-				if (key == "joint_blur") {
-					*gp_joint_blur = std::stoi(value);
-					continue;
-				}
-
-				if (key == "joint_crop") {
-					*gp_joint_crop = static_cast<Crop>(std::stoi(value));
-					continue;
-				}
-
-				if (key == "joint_rotation") {
-					*gp_joint_rotation = std::stoi(value);
-					continue;
-				}
-
-				if (key == "joint_scale") {
-					*gp_joint_scale = std::stod(value);
-					continue;
-				}
+				load_info(key, value, "bot_", bottom_info);
+				load_info(key, value, "joint_", joint_info);
+				load_info(key, value, "top_", top_info);
 
 				if (key == "mute") {
 					g_mute = std::stoi(value);
@@ -229,28 +232,13 @@ void load(std::string path, std::string name) {
 					continue;
 				}
 
-				if (key == "top_blur") {
-					*gp_top_blur = std::stoi(value);
-					continue;
-				}
-
-				if (key == "top_crop") {
-					*gp_top_crop = static_cast<Crop>(std::stoi(value));
-					continue;
-				}
-
-				if (key == "top_rotation") {
-					*gp_top_rotation = std::stoi(value);
-					continue;
-				}
-
-				if (key == "top_scale") {
-					*gp_top_scale = std::stod(value);
-					continue;
-				}
-
 				if (key == "volume") {
-					g_volume = std::stoi(value);
+					int pre_loaded_volume = std::stoi(value);
+					if(pre_loaded_volume < 0)
+						pre_loaded_volume = 0;
+					if(pre_loaded_volume > 100)
+						pre_loaded_volume = 100;
+					g_volume = pre_loaded_volume;
 					continue;
 				}
 			}
@@ -258,12 +246,21 @@ void load(std::string path, std::string name) {
 	}
 
 	file.close();
+	return true;
 }
 
-void save(std::string path, std::string name) {
+std::string save_screen_info(std::string base, const ScreenInfo &info) {
+	std::string out = "";
+	out += base + "blur=" + std::to_string(info.is_blurred) + "\n";
+	out += base + "crop=" + std::to_string(info.crop_kind) + "\n";
+	out += base + "rotation=" + std::to_string(info.rotation) + "\n";
+	out += base + "scale=" + std::to_string(info.scaling) + "\n";
+	return out;
+}
+
+void save(std::string path, std::string name, const ScreenInfo &top_info, const ScreenInfo &bottom_info, const ScreenInfo &joint_info) {
 	std::filesystem::create_directories(path);
 	std::ofstream file(path + name);
-
 	if (!file.good()) {
 		printf("[%s] File \"%s\" save failed.\n", NAME, name.c_str());
 		file.close();
@@ -271,20 +268,11 @@ void save(std::string path, std::string name) {
 		return;
 	}
 
-	file << "bot_blur=" << *gp_bot_blur << std::endl;
-	file << "bot_crop=" << *gp_bot_crop << std::endl;
-	file << "bot_rotation=" << *gp_bot_rotation << std::endl;
-	file << "bot_scale=" << *gp_bot_scale << (*gp_bot_scale - static_cast<int>(*gp_bot_scale) ? "" : ".0") << std::endl;
-	file << "joint_blur=" << *gp_joint_blur << std::endl;
-	file << "joint_crop=" << *gp_joint_crop << std::endl;
-	file << "joint_rotation=" << *gp_joint_rotation << std::endl;
-	file << "joint_scale=" << *gp_joint_scale << (*gp_joint_scale - static_cast<int>(*gp_joint_scale) ? "" : ".0") << std::endl;
+	file << save_screen_info("bot_", bottom_info);
+	file << save_screen_info("joint_", joint_info);
+	file << save_screen_info("top_", top_info);
 	file << "mute=" << g_mute << std::endl;
 	file << "split=" << g_split << std::endl;
-	file << "top_blur=" << *gp_top_blur << std::endl;
-	file << "top_crop=" << *gp_top_crop << std::endl;
-	file << "top_rotation=" << *gp_top_rotation << std::endl;
-	file << "top_scale=" << *gp_top_scale << (*gp_top_scale - static_cast<int>(*gp_top_scale) ? "" : ".0") << std::endl;
 	file << "volume=" << g_volume << std::endl;
 
 	file.close();
@@ -292,25 +280,26 @@ void save(std::string path, std::string name) {
 
 class Screen {
 public:
-	enum Type { TOP, BOT, JOINT };
-
+	enum ScreenType { TOP, BOT, JOINT };
 	sf::RectangleShape m_in_rect;
 	sf::RenderWindow m_win;
+	ScreenInfo m_info;
 
-	Screen(bool **pp_blur, Crop **pp_crop, int **pp_rotation, double **pp_scale) {
-		*pp_blur = &this->m_blur;
-		*pp_crop = &this->m_crop;
-		*pp_rotation = &this->m_rotation;
-		*pp_scale = &this->m_scale;
+	Screen(Screen::ScreenType stype) {
+		this->m_stype = stype;
+		this->m_info.is_blurred = false;
+		this->m_info.crop_kind = DEFAULT_3DS;
+		this->m_info.rotation = 0;
+		this->m_info.scaling = 1.0;
+		this->m_prepare_save = 0;
+		this->m_prepare_load = 0;
 	}
 
-	void build(Screen::Type type, int u, int width, bool open) {
-		this->m_type = type;
-
+	void build(int width, int start_x, bool do_open) {
 		this->resize(TOP_WIDTH_3DS, this->height(HEIGHT_3DS));
 
 		this->m_in_rect.setTexture(&g_in_tex);
-		this->m_in_rect.setTextureRect(sf::IntRect(0, u, this->m_height, width));
+		this->m_in_rect.setTextureRect(sf::IntRect(0, start_x, this->m_height, width));
 
 		this->m_in_rect.setSize(sf::Vector2f(this->m_height, width));
 		this->m_in_rect.setOrigin(this->m_height / 2, width / 2);
@@ -325,7 +314,7 @@ public:
 
 		this->m_view.reset(sf::FloatRect(0, 0, width, this->m_height));
 
-		if (open) {
+		if (do_open) {
 			this->open();
 		}
 	}
@@ -338,17 +327,17 @@ public:
 		this->m_view.setSize(this->m_width, this->m_height);
 		this->m_win.setView(this->m_view);
 
-		this->m_out_tex.setSmooth(this->m_blur);
+		this->m_out_tex.setSmooth(this->m_info.is_blurred);
 
-		if (this->m_rotation) {
-			if (this->horizontal()) {
+		if (this->m_info.rotation) {
+			if (this->m_info.rotation / 10 % 2) {
 				std::swap(this->m_width, this->m_height);
 			}
 
 			this->rotate();
 		}
 
-		if (this->m_crop) {
+		if (this->m_info.crop_kind) {
 			this->crop();
 		}
 
@@ -358,17 +347,17 @@ public:
 	void move() {
 		this->m_in_rect.setPosition(this->m_in_rect.getOrigin().y, this->m_in_rect.getOrigin().x);
 
-		switch (this->m_type) {
-		case Screen::Type::TOP:
-			if (g_split && this->m_crop == Crop::NATIVE_DS) {
+		switch (this->m_stype) {
+		case Screen::ScreenType::TOP:
+			if (g_split && this->m_info.crop_kind == Crop::NATIVE_DS) {
 				this->m_in_rect.move(0, -DELTA_HEIGHT_DS / 2);
 			}
 
 			return;
 
-		case Screen::Type::BOT:
+		case Screen::ScreenType::BOT:
 			if (g_split) {
-				if (this->m_crop == Crop::NATIVE_DS) {
+				if (this->m_info.crop_kind == Crop::NATIVE_DS) {
 					this->m_in_rect.move(0, DELTA_HEIGHT_DS / 2);
 				}
 			}
@@ -391,29 +380,37 @@ public:
 			case sf::Event::KeyPressed:
 				switch (this->m_event.key.code) {
 				case sf::Keyboard::C:
-					g_connected = connect();
+					g_connected = connect(true);
 					break;
 
 				case sf::Keyboard::S:
-					g_split ^= g_swap = true;
+					g_split = !g_split;
 					break;
 
 				case sf::Keyboard::B:
-					this->m_out_tex.setSmooth(this->m_blur ^= true);
+					this->m_out_tex.setSmooth(this->m_info.is_blurred = !this->m_info.is_blurred);
 					break;
 
+				#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
 				case sf::Keyboard::Hyphen:
-					this->m_scale -= this->m_scale == 1.0 ? 0.0 : 0.5;
+				#else
+				case sf::Keyboard::Dash:
+				#endif
+					this->m_info.scaling -= 0.5;
+					if (this->m_info.scaling < 1.25)
+						this->m_info.scaling = 1.0;
 					break;
 
 				case sf::Keyboard::Equal:
-					this->m_scale += this->m_scale == 4.5 ? 0.0 : 0.5;
+					this->m_info.scaling += 0.5;
+					if (this->m_info.scaling > 44.75)
+						this->m_info.scaling = 45.0;
 					break;
 
 				case sf::Keyboard::LBracket:
 					std::swap(this->m_width, this->m_height);
 
-					this->m_rotation = (this->m_rotation + 90) % 360;
+					this->m_info.rotation = (this->m_info.rotation + 90) % 360;
 					this->rotate();
 
 					break;
@@ -421,21 +418,30 @@ public:
 				case sf::Keyboard::RBracket:
 					std::swap(this->m_width, this->m_height);
 
-					this->m_rotation = ((this->m_rotation - 90) % 360 + 360) % 360;
+					this->m_info.rotation = (this->m_info.rotation + 270) % 360;
 					this->rotate();
 
 					break;
 
+				#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
 				case sf::Keyboard::Apostrophe:
-					this->m_crop = static_cast<Crop>((this->m_crop + 1) % Crop::END);
+				#else
+				case sf::Keyboard::Quote:
+				#endif
+					this->m_info.crop_kind = static_cast<Crop>((this->m_info.crop_kind + 1) % Crop::END);
 
 					this->crop();
 					this->move();
 
 					break;
 
+
+				#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
 				case sf::Keyboard::Semicolon:
-					this->m_crop = static_cast<Crop>(((this->m_crop - 1) % Crop::END + Crop::END) % Crop::END);
+				#else
+				case sf::Keyboard::SemiColon:
+				#endif
+					this->m_info.crop_kind = static_cast<Crop>(((this->m_info.crop_kind - 1) % Crop::END + Crop::END) % Crop::END);
 
 					this->crop();
 					this->move();
@@ -443,38 +449,35 @@ public:
 					break;
 
 				case sf::Keyboard::M:
-					g_audio.setVolume((g_mute ^= true) ? 0 : g_volume);
+					g_mute = !g_mute;
 					break;
 
 				case sf::Keyboard::Comma:
-					g_audio.setVolume(g_volume -= g_volume == 0 ? 0 : 5);
+					g_mute = false;
+					g_volume -= 5;
+					if(g_volume < 0)
+						g_volume = 0;
 					break;
 
 				case sf::Keyboard::Period:
-					g_audio.setVolume(g_volume += g_volume == 100 ? 0 : 5);
+					g_mute = false;
+					g_volume += 5;
+					if(g_volume > 100)
+						g_volume = 100;
 					break;
 
 				case sf::Keyboard::F1:
 				case sf::Keyboard::F2:
 				case sf::Keyboard::F3:
 				case sf::Keyboard::F4:
-					if (!g_skip_io) {
-						load(g_conf_dir + "/presets/", "layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F1 + 1) + ".conf");
-					}
-
-					g_init = true;
-					g_audio.setVolume(g_mute ? 0 : g_volume);
-
+					this->m_prepare_load = this->m_event.key.code - sf::Keyboard::F1 + 1;
 					break;
 
 				case sf::Keyboard::F5:
 				case sf::Keyboard::F6:
 				case sf::Keyboard::F7:
 				case sf::Keyboard::F8:
-					if (!g_skip_io) {
-						save(g_conf_dir + "/presets/", "layout" + std::to_string(this->m_event.key.code - sf::Keyboard::F5 + 1) + ".conf");
-					}
-
+					this->m_prepare_save = this->m_event.key.code - sf::Keyboard::F5 + 1;
 					break;
 				}
 
@@ -488,7 +491,7 @@ public:
 	}
 
 	void draw() {
-		this->m_win.setSize(sf::Vector2u(this->m_width * this->m_scale, this->m_height * this->m_scale));
+		this->m_win.setSize(sf::Vector2u(this->m_width * this->m_info.scaling, this->m_height * this->m_info.scaling));
 
 		this->m_out_tex.clear();
 		this->m_out_tex.draw(this->m_in_rect);
@@ -500,7 +503,7 @@ public:
 	}
 
 	void draw(sf::RectangleShape *p_top_rect, sf::RectangleShape *p_bot_rect) {
-		this->m_win.setSize(sf::Vector2u(this->m_width * this->m_scale, this->m_height * this->m_scale));
+		this->m_win.setSize(sf::Vector2u(this->m_width * this->m_info.scaling, this->m_height * this->m_info.scaling));
 
 		this->m_out_tex.clear();
 		this->m_out_tex.draw(*p_top_rect);
@@ -511,15 +514,25 @@ public:
 		this->m_win.draw(this->m_out_rect);
 		this->m_win.display();
 	}
+	
+	int load_data() {
+		int ret_val = this->m_prepare_load;
+		this->m_prepare_load = 0;
+		return ret_val;
+	}
+	
+	int save_data() {
+		int ret_val = this->m_prepare_save;
+		this->m_prepare_save = 0;
+		return ret_val;
+	}
 
 private:
-	bool m_blur = false;
-	Crop m_crop = Crop::DEFAULT_3DS;
-	int m_rotation = 0;
-	double m_scale = 1.0;
-
-	Screen::Type m_type;
 	int m_width, m_height;
+	int m_prepare_load;
+	int m_prepare_save;
+
+	Screen::ScreenType m_stype;
 
 	sf::RenderTexture m_out_tex;
 	sf::RectangleShape m_out_rect;
@@ -528,19 +541,19 @@ private:
 	sf::Event m_event;
 
 	bool horizontal() {
-		return this->m_rotation / 10 % 2;
+		return this->m_info.rotation / 10 % 2;
 	}
 
 	int height(int height) {
-		return height * (this->m_type == Screen::Type::JOINT ? 2 : 1);
+		return height * (this->m_stype == Screen::ScreenType::JOINT ? 2 : 1);
 	}
 
 	std::string title() {
-		switch (this->m_type) {
-		case Screen::Type::TOP:
+		switch (this->m_stype) {
+		case Screen::ScreenType::TOP:
 			return std::string(NAME) + "-top";
 
-		case Screen::Type::BOT:
+		case Screen::ScreenType::BOT:
 			return std::string(NAME) + "-bot";
 
 		default:
@@ -554,23 +567,24 @@ private:
 	}
 
 	void open() {
-		this->m_win.create(sf::VideoMode(this->m_width * this->m_scale, this->m_height * this->m_scale), this->title());
+		this->m_win.create(sf::VideoMode(this->m_width * this->m_info.scaling, this->m_height * this->m_info.scaling), this->title());
 		this->m_win.setView(this->m_view);
 
-		this->m_win.setKeyRepeatEnabled(false);
-
-		g_vsync ? this->m_win.setVerticalSyncEnabled(true) : this->m_win.setFramerateLimit(FRAMERATE_LIMIT);
+		if(this->m_stype == Screen::ScreenType::JOINT)
+			g_vsync ? this->m_win.setVerticalSyncEnabled(true) : this->m_win.setFramerateLimit(FRAMERATE_LIMIT);
+		else
+			this->m_win.setFramerateLimit(FRAMERATE_LIMIT);
 	}
 
 	void rotate() {
-		this->m_view.setRotation(this->m_rotation);
+		this->m_view.setRotation(this->m_info.rotation);
 
 		this->m_view.setSize(this->m_width, this->m_height);
 		this->m_win.setView(this->m_view);
 	}
 
 	void crop() {
-		switch (this->m_crop) {
+		switch (this->m_info.crop_kind) {
 		case Crop::DEFAULT_3DS:
 			this->horizontal() ? this->resize(this->height(HEIGHT_3DS), TOP_WIDTH_3DS) : this->resize(TOP_WIDTH_3DS, this->height(HEIGHT_3DS));
 			break;
@@ -589,64 +603,140 @@ private:
 	}
 };
 
-void capture() {
-	OVERLAPPED overlap[BUF_COUNT];
+bool connect(bool print_failed) {
+	if (g_connected) {
+		g_close_success = false;
+		return false;
+	}
+	
+	if(!g_close_success) {
+		return false;
+	}
 
-start:
-	g_curr_in = 0;
+	if (FT_Create(const_cast<char*>(PRODUCT_1), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
+		if (FT_Create(const_cast<char*>(PRODUCT_2), FT_OPEN_BY_DESCRIPTION, &g_handle)) {
+			if(print_failed) {
+				printf("[%s] Create failed.\n", NAME);
+			}
+			return false;
+		}
+	}
 
-	while (!g_connected) {
-		if (!g_running) {
+	UCHAR buf[4] = {0x40, 0x80, 0x00, 0x00};
+	ULONG written = 0;
+
+	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
+		if(print_failed) {
+			printf("[%s] Write failed.\n", NAME);
+		}
+		return false;
+	}
+
+	buf[1] = 0x00;
+
+	if (FT_WritePipe(g_handle, BULK_OUT, buf, 4, &written, 0)) {
+		if(print_failed) {
+			printf("[%s] Write failed.\n", NAME);
+		}
+		return false;
+	}
+
+	if (FT_SetStreamPipe(g_handle, false, false, BULK_IN, BUF_SIZE)) {
+		if(print_failed) {
+			printf("[%s] Stream failed.\n", NAME);
+		}
+		return false;
+	}
+
+	return true;
+}
+
+void capture_call(OVERLAPPED overlap[BUF_COUNT]) {
+	int inner_curr_in = 0;
+	FT_STATUS ftStatus;
+	for (inner_curr_in = 0; inner_curr_in < BUF_COUNT; ++inner_curr_in) {
+		ftStatus = FT_InitializeOverlapped(g_handle, &overlap[inner_curr_in]);
+		if (ftStatus) {
+			printf("[%s] Initialize failed.\n", NAME);
+			return;
+		}
+	}
+
+	for (inner_curr_in = 0; inner_curr_in < BUF_COUNT - 1; ++inner_curr_in) {
+		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[inner_curr_in], BUF_SIZE, &g_read[inner_curr_in], &overlap[inner_curr_in]);
+		if (ftStatus != FT_IO_PENDING) {
+			printf("[%s] Read failed.\n", NAME);
+			return;
+		}
+	}
+
+	inner_curr_in = BUF_COUNT - 1;
+
+	while (g_connected && g_running) {
+
+		ftStatus = FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[inner_curr_in], BUF_SIZE, &g_read[inner_curr_in], &overlap[inner_curr_in]);
+		if (ftStatus != FT_IO_PENDING) {
+			printf("[%s] Read failed.\n", NAME);
 			return;
 		}
 
-		memset(g_in_buf[g_curr_in], 0, BUF_SIZE);
-		g_read[g_curr_in] = 0;
+		inner_curr_in = (inner_curr_in + 1) % BUF_COUNT;
 
-		sf::sleep(sf::milliseconds(100));
-
-		g_curr_in = (g_curr_in + 1) % BUF_COUNT;
-	}
-
-	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
-		if (FT_InitializeOverlapped(g_handle, &overlap[g_curr_in])) {
-			printf("[%s] Initialize failed.\n", NAME);
-			goto end;
-		}
-	}
-
-	g_curr_in = 0;
-
-	while (g_connected && g_running) {
-		memset(g_in_buf[g_curr_in], 0, BUF_SIZE);
-		g_read[g_curr_in] = 0;
-
-		if (FT_GetOverlappedResult(g_handle, &overlap[g_curr_in], &g_read[g_curr_in], true) == FT_IO_INCOMPLETE && FT_AbortPipe(g_handle, BULK_IN)) {
+		ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
+		if (ftStatus == FT_IO_INCOMPLETE && FT_AbortPipe(g_handle, BULK_IN)) {
 			printf("[%s] Abort failed.\n", NAME);
-			goto end;
+			return;
+		}
+		else if(FT_FAILED(ftStatus)) {
+			printf("[%s] USB error.\n", NAME);
+			return;
 		}
 
-		if (FT_ReadPipeAsync(g_handle, FIFO_CHANNEL, g_in_buf[g_curr_in], BUF_SIZE, &g_read[g_curr_in], &overlap[g_curr_in]) != FT_IO_PENDING) {
-			printf("[%s] Read failed.\n", NAME);
-			goto end;
+		g_curr_in = (inner_curr_in + 1) % BUF_COUNT;
+		if(g_cooldown_curr_in)
+			g_cooldown_curr_in--;
+		g_video_wait.unlock();
+		g_audio_wait.unlock();
+	}
+}
+
+void capture() {
+	OVERLAPPED overlap[BUF_COUNT];
+	FT_STATUS ftStatus;
+	int inner_curr_in = 0;
+	g_curr_in = inner_curr_in;
+	g_cooldown_curr_in = FIX_PARTIAL_FIRST_FRAME_NUM;
+
+	while(g_running) {
+		if (!g_connected) {
+			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
+			continue;
 		}
 
-		g_curr_in = (g_curr_in + 1) % BUF_COUNT;
-	}
+		capture_call(overlap);
 
-end:
-	for (g_curr_in = 0; g_curr_in < BUF_COUNT; ++g_curr_in) {
-		if (FT_ReleaseOverlapped(g_handle, &overlap[g_curr_in])) {
-			printf("[%s] Release failed.\n", NAME);
+		g_close_success = false;
+		g_connected = false;
+		g_cooldown_curr_in = FIX_PARTIAL_FIRST_FRAME_NUM;
+		g_video_wait.unlock();
+		g_audio_wait.unlock();
+
+		for (inner_curr_in = 0; inner_curr_in < BUF_COUNT; ++inner_curr_in) {
+			ftStatus = FT_GetOverlappedResult(g_handle, &overlap[inner_curr_in], &g_read[inner_curr_in], true);
+			if (FT_ReleaseOverlapped(g_handle, &overlap[inner_curr_in])) {
+				printf("[%s] Release failed.\n", NAME);
+			}
 		}
-	}
 
-	if (FT_Close(g_handle)) {
-		printf("[%s] Close failed.\n", NAME);
-	}
+		if (FT_Close(g_handle)) {
+			printf("[%s] Close failed.\n", NAME);
+		}
 
-	g_connected = false;
-	goto start;
+		#ifdef CLOSE_ON_FAIL
+		g_running = false;
+		#endif
+		g_close_success = true;
+	}
 }
 
 void map(UCHAR *p_in, UCHAR *p_out) {
@@ -678,109 +768,171 @@ void map(UCHAR *p_in, UCHAR *p_out) {
 	}
 }
 
-void map(UCHAR *p_in, sf::Int16 *p_out) {
-	for (int i = 0; i < SAMPLE_SIZE_16; ++i) {
+void map(UCHAR *p_in, sf::Int16 *p_out, int n_samples) {
+	for (int i = 0; i < n_samples; ++i) {
 		p_out[i] = p_in[i * 2 + 1] << 8 | p_in[i * 2];
 	}
 }
 
 void playback() {
-	sf::Int16 out_buf[BUF_COUNT][SAMPLE_SIZE_16];
-	int curr_out, prev_out = 0;
+	Audio audio;
+	sf::Int16 out_buf[AUDIO_BUF_COUNT][SAMPLE_SIZE_16];
+	int curr_out, prev_out = BUF_COUNT - 1, audio_buf_counter = 0, num_consecutive_audio_stop = 0;
 
-	g_audio.setVolume(g_mute ? 0 : g_volume);
+	audio.update_volume(g_volume, g_mute);
+	volatile int loaded_samples;
 
 	while (g_running) {
-		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
+		if(g_connected) {
+			g_audio_wait.lock();
+			curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
-		if (curr_out != prev_out) {
-			if (g_read[curr_out] > FRAME_SIZE_RGB && g_samples.size() < SAMPLE_LIMIT) {
-				map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[curr_out]);
-				g_samples.emplace(out_buf[curr_out], (g_read[curr_out] - FRAME_SIZE_RGB) / 2);
+			if ((!g_cooldown_curr_in) && (curr_out != prev_out)) {
+				loaded_samples = g_samples.size();
+				if ((g_read[curr_out] > FRAME_SIZE_RGB) && (loaded_samples < AUDIO_LATENCY)) {
+					int n_samples = (g_read[curr_out] - FRAME_SIZE_RGB) / 2;
+					if(n_samples > SAMPLE_SIZE_16) {
+						n_samples = SAMPLE_SIZE_16;
+					}
+					map(&g_in_buf[curr_out][FRAME_SIZE_RGB], out_buf[audio_buf_counter], n_samples);
+					g_samples.emplace(out_buf[audio_buf_counter], n_samples);
+					if(++audio_buf_counter == AUDIO_BUF_COUNT) {
+						audio_buf_counter = 0;
+					}
+				}
+				prev_out = curr_out;
 			}
-
-			if (g_audio.getStatus() != sf::SoundStream::Playing) {
-				g_audio.play();
+			
+			loaded_samples = g_samples.size();
+			if (audio.getStatus() != sf::SoundStream::Playing) {
+				if (loaded_samples > 0) {
+					num_consecutive_audio_stop++;
+					if (num_consecutive_audio_stop > AUDIO_FAILURE_THRESHOLD) {
+						audio.stop();
+						audio.~Audio();
+						::new(&audio) Audio();
+					}
+					audio.play();
+				}
 			}
-
-			prev_out = curr_out;
+			else {
+				audio.update_volume(g_volume, g_mute);
+				num_consecutive_audio_stop = 0;
+			}
 		}
-
-		sf::sleep(sf::milliseconds(0));
+		else {
+			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
+		}
 	}
 
-	g_audio.stop();
+	audio.stop();
 }
 
-void render() {
+void render(bool skip_io) {
 	UCHAR out_buf[FRAME_SIZE_RGBA];
-	int curr_out, prev_out = 0;
+	int curr_out, prev_out = BUF_COUNT - 1;
+	bool loaded_split = false;
+	bool re_init = true;
+	bool do_blank_screen = true;
 
 	g_in_tex.create(CAP_WIDTH, CAP_HEIGHT);
 
-	Screen top_screen(&gp_top_blur, &gp_top_crop, &gp_top_rotation, &gp_top_scale);
-	Screen bot_screen(&gp_bot_blur, &gp_bot_crop, &gp_bot_rotation, &gp_bot_scale);
-	Screen joint_screen(&gp_joint_blur, &gp_joint_crop, &gp_joint_rotation, &gp_joint_scale);
+	Screen top_screen(Screen::ScreenType::TOP);
+	Screen bot_screen(Screen::ScreenType::BOT);
+	Screen joint_screen(Screen::ScreenType::JOINT);
 
-	if (!g_skip_io) {
-		load(g_conf_dir + "/", std::string(NAME) + ".conf");
+	if (!skip_io) {
+		load(g_conf_dir + "/", std::string(NAME) + ".conf", top_screen.m_info, bot_screen.m_info, joint_screen.m_info);
 	}
+	loaded_split = g_split;
 
-	top_screen.build(Screen::Type::TOP, 0, TOP_WIDTH_3DS, g_split);
-	bot_screen.build(Screen::Type::BOT, TOP_WIDTH_3DS, BOT_WIDTH_3DS, g_split);
-	joint_screen.build(Screen::Type::JOINT, 0, TOP_WIDTH_3DS, !g_split);
+	top_screen.build(TOP_WIDTH_3DS, 0, g_split);
+	bot_screen.build(BOT_WIDTH_3DS, TOP_WIDTH_3DS, g_split);
+	joint_screen.build(TOP_WIDTH_3DS, 0, !g_split);
 
 	std::thread thread(playback);
 
 	while (g_running) {
-		top_screen.poll();
-		bot_screen.poll();
-		joint_screen.poll();
 
-		curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
+		if(g_connected) {
+			g_video_wait.lock();
+			curr_out = (g_curr_in - 1 + BUF_COUNT) % BUF_COUNT;
 
-		if (curr_out != prev_out) {
-			map(g_in_buf[curr_out], out_buf);
-			g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
+			if ((!g_cooldown_curr_in) && (curr_out != prev_out)) {
+				if(g_read[curr_out] >= FRAME_SIZE_RGB) {
+					map(g_in_buf[curr_out], out_buf);
+				}
+				else {
+					memset(out_buf, 0, FRAME_SIZE_RGBA);
+				}
 
-			if (g_init) {
-				top_screen.reset();
-				bot_screen.reset();
-				joint_screen.reset();
+				g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
 
-				if (!(joint_screen.m_win.isOpen() ^ g_split)) {
+				if (re_init) {
+					top_screen.reset();
+					bot_screen.reset();
+					joint_screen.reset();
+					re_init = false;
+				}
+
+				if (loaded_split != g_split) {
 					top_screen.toggle();
 					bot_screen.toggle();
 					joint_screen.toggle();
+
+					top_screen.move();
+					bot_screen.move();
+
+					loaded_split = g_split;
 				}
 
-				g_init = false;
+				if (g_split) {
+					top_screen.draw();
+					bot_screen.draw();
+				}
+
+				else {
+					joint_screen.draw(&top_screen.m_in_rect, &bot_screen.m_in_rect);
+				}
+
+				prev_out = curr_out;
 			}
+			do_blank_screen = true;
+		}
+		else {
+			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
+		}
 
-			if (g_swap) {
-				top_screen.toggle();
-				bot_screen.toggle();
-				joint_screen.toggle();
-
-				top_screen.move();
-				bot_screen.move();
-
-				g_swap = false;
-			}
-
-			if (g_split) {
+		if((!g_connected) && do_blank_screen) {
+			memset(out_buf, 0, FRAME_SIZE_RGBA);
+			g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
+			if (loaded_split) {
 				top_screen.draw();
 				bot_screen.draw();
 			}
-
 			else {
 				joint_screen.draw(&top_screen.m_in_rect, &bot_screen.m_in_rect);
 			}
-
-			prev_out = curr_out;
+			do_blank_screen = false;
 		}
 
-		sf::sleep(sf::milliseconds(0));
+		int load_index = 0;
+		int save_index = 0;
+		top_screen.poll();
+		bot_screen.poll();
+		joint_screen.poll();
+		
+		if((load_index = top_screen.load_data()) || (load_index = bot_screen.load_data()) || (load_index = joint_screen.load_data())) {
+			if (!skip_io) {
+				re_init = load(g_conf_dir + "/presets/", "layout" + std::to_string(load_index) + ".conf", top_screen.m_info, bot_screen.m_info, joint_screen.m_info);
+			}
+		}
+		
+		if((save_index = top_screen.save_data()) || (save_index = bot_screen.save_data()) || (save_index = joint_screen.save_data())) {
+			if (!skip_io) {
+				save(g_conf_dir + "/presets/", "layout" + std::to_string(save_index) + ".conf", top_screen.m_info, bot_screen.m_info, joint_screen.m_info);
+			}
+		}
 	}
 
 	thread.join();
@@ -789,15 +941,16 @@ void render() {
 	bot_screen.m_win.close();
 	joint_screen.m_win.close();
 
-	if (!g_skip_io) {
-		save(g_conf_dir + "/", std::string(NAME) + ".conf");
+	if (!skip_io) {
+		save(g_conf_dir + "/", std::string(NAME) + ".conf", top_screen.m_info, bot_screen.m_info, joint_screen.m_info);
 	}
 }
 
 int main(int argc, char **argv) {
+	bool skip_io = false;
 	for (int i = 1; i < argc; ++i) {
 		if (strcmp(argv[i], "--safe") == 0) {
-			g_skip_io = true;
+			skip_io = true;
 			continue;
 		}
 
@@ -809,10 +962,14 @@ int main(int argc, char **argv) {
 		printf("[%s] Invalid argument \"%s\".\n", NAME, argv[i]);
 	}
 
-	g_connected = connect();
+	g_connected = connect(true);
+	#ifdef CLOSE_ON_FAIL
+	if(!g_connected)
+		return -1;
+	#endif
 	std::thread thread(capture);
 
-	render();
+	render(skip_io);
 	thread.join();
 
 	return 0;
