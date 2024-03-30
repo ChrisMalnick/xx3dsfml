@@ -14,6 +14,7 @@
 #include <cstring>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <queue>
 
 #define NAME "xx3dsfml"
@@ -102,7 +103,6 @@ std::string g_conf_dir = std::string(std::getenv("HOME")) + "/.config/" + std::s
 int g_curr_in = 0;
 int g_cooldown_curr_in = FIX_PARTIAL_FIRST_FRAME_NUM;
 
-bool g_is_ready_curr_in = false;
 bool g_connected = false;
 bool g_running = true;
 bool g_close_success = true;
@@ -113,8 +113,54 @@ bool g_vsync = false;
 int g_volume = 50;
 bool g_mute = false;
 
-std::mutex g_video_wait;
-std::mutex g_audio_wait;
+class ConsumerMutex {
+public:
+	ConsumerMutex() {
+		count = 0;
+	}
+	
+	void lock() {
+		access_mutex.lock();
+		bool success = false;
+		while(!success) {
+			if(count) {
+				count--;
+				success = true;
+			}
+			else {
+				condition.wait(access_mutex);
+			}
+		}
+		access_mutex.unlock();
+	}
+	
+	bool try_lock() {
+		access_mutex.lock();
+		bool success = false;
+		if(count) {
+			count--;
+			success = true;
+		}
+		access_mutex.unlock();
+		return success;
+	}
+	
+	void unlock() {
+		access_mutex.lock();
+		// Enforce 1 max
+		count = 1;
+		condition.notify_one();
+		access_mutex.unlock();
+	}
+
+private:
+	std::mutex access_mutex;
+	std::condition_variable_any condition;
+	int count = 0;
+};
+
+ConsumerMutex g_video_wait;
+ConsumerMutex g_audio_wait;
 
 bool connect(bool);
 
@@ -648,6 +694,10 @@ bool connect(bool print_failed) {
 		return false;
 	}
 
+	// Avoid having old open locks
+	g_video_wait.try_lock();
+	g_audio_wait.try_lock();
+
 	return true;
 }
 
@@ -695,6 +745,7 @@ void capture_call(OVERLAPPED overlap[BUF_COUNT]) {
 		g_curr_in = (inner_curr_in + 1) % BUF_COUNT;
 		if(g_cooldown_curr_in)
 			g_cooldown_curr_in--;
+		// Signal that there is data available
 		g_video_wait.unlock();
 		g_audio_wait.unlock();
 	}
@@ -718,6 +769,8 @@ void capture() {
 		g_close_success = false;
 		g_connected = false;
 		g_cooldown_curr_in = FIX_PARTIAL_FIRST_FRAME_NUM;
+		// Needed in case the threads went in the g_connected loop
+		// before it is set right above, and they are waiting on the locks!
 		g_video_wait.unlock();
 		g_audio_wait.unlock();
 
