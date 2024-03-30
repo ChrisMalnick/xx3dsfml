@@ -853,8 +853,8 @@ void playback() {
 						audio_buf_counter = 0;
 					}
 				}
-				prev_out = curr_out;
 			}
+			prev_out = curr_out;
 			
 			loaded_samples = g_samples.size();
 			if (audio.getStatus() != sf::SoundStream::Playing) {
@@ -947,9 +947,8 @@ void render(bool skip_io) {
 				else {
 					joint_screen.draw(&top_screen.m_in_rect, &bot_screen.m_in_rect);
 				}
-
-				prev_out = curr_out;
 			}
+			prev_out = curr_out;
 			do_blank_screen = true;
 		}
 		else {
