@@ -180,6 +180,12 @@ public:
 		if(mute && (mute == loaded_mute)) {
 			return;
 		}
+
+		if(volume < 0)
+			volume = 0;
+		if(volume > 100)
+			volume = 100;
+
 		if(mute != loaded_mute) {
 			loaded_mute = mute;
 			loaded_volume = volume;
