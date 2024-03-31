@@ -8,11 +8,17 @@ SRC_FOLDER := ${FTD3XX_FOLDER}/downloads
 CXX := g++
 FRAMEWORKS_OPTIONS :=
 CLEANUP_CMD := echo "DONE"
+RPATH_ARGS :=
 URL_TIME := 2023/03
 ifeq (${SYS}, Darwin)
 	EXT := dylib
 	CXX := clang++
 	FRAMEWORKS_OPTIONS := -framework Cocoa -framework OpenGL -framework IOKit
+	RPATH_ARGS := -Wl,-rpath /usr/local/lib -Wl,-rpath /opt/homebrew/lib
+	K := $(shell which brew)
+	ifeq ($(.SHELLSTATUS), 0)
+	RPATH_ARGS += -Wl,-rpath $(brew --prefix)/lib
+	endif
 	LIB := libftd3xx-static.a
 	VOL := d3xx-osx.${VER}
 	SRC_FOLDER := /Volumes/${VOL}
@@ -39,7 +45,7 @@ else ifeq (${SYS}, Linux)
 endif
 
 xx3dsfml: xx3dsfml.o
-	${CXX} xx3dsfml.o -o xx3dsfml -std=c++17 ${FRAMEWORKS_OPTIONS} ${FTD3XX_FOLDER}/libftd3xx-static.a -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window -lpthread
+	${CXX} xx3dsfml.o -o xx3dsfml -std=c++17 ${RPATH_ARGS} ${FRAMEWORKS_OPTIONS} ${FTD3XX_FOLDER}/libftd3xx-static.a -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window -lpthread
 
 xx3dsfml.o: xx3dsfml.cpp
 	${CXX} -std=c++17 -I ${FTD3XX_FOLDER} -c xx3dsfml.cpp -o xx3dsfml.o
