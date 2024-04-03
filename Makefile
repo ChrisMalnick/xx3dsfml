@@ -10,6 +10,8 @@ FRAMEWORKS_OPTIONS :=
 CLEANUP_CMD := echo "DONE"
 RPATH_ARGS :=
 URL_TIME := 2023/03
+FTD3XX_LIB := libftd3xx-static.a
+FTD3XX_HEADER := ftd3xx.h
 ifeq (${SYS}, Darwin)
 	EXT := dylib
 	CXX := clang++
@@ -19,7 +21,6 @@ ifeq (${SYS}, Darwin)
 	ifeq ($(.SHELLSTATUS), 0)
 	RPATH_ARGS += -Wl,-rpath $(brew --prefix)/lib
 	endif
-	LIB := libftd3xx-static.a
 	VOL := d3xx-osx.${VER}
 	SRC_FOLDER := /Volumes/${VOL}
 	TAR := ${VOL}.dmg
@@ -27,7 +28,6 @@ ifeq (${SYS}, Darwin)
 	CLEANUP_CMD := hdiutil detach ${SRC_FOLDER}
 else ifeq (${SYS}, Linux)
 	EXT := so
-	LIB := libftd3xx-static.a
 	ifeq (${ARC}, $(filter aarch% arm%, ${ARC}))
 		ifeq (${ARC}, $(filter arm64% %64 armv8% %v8, ${ARC}))
 			TAR := libftd3xx-linux-arm-v8-${VER}.tgz
@@ -44,10 +44,10 @@ else ifeq (${SYS}, Linux)
 	ZIP := tar -xzf ${FTD3XX_FOLDER}/downloads/${TAR} --strip-components 1 -C ${FTD3XX_FOLDER}/downloads
 endif
 
-xx3dsfml: xx3dsfml.o
-	${CXX} xx3dsfml.o -o xx3dsfml -std=c++17 ${RPATH_ARGS} ${FRAMEWORKS_OPTIONS} ${FTD3XX_FOLDER}/libftd3xx-static.a -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window -lpthread
+xx3dsfml: xx3dsfml.o ${FTD3XX_FOLDER}/${FTD3XX_LIB}
+	${CXX} xx3dsfml.o -o xx3dsfml -std=c++17 ${RPATH_ARGS} ${FRAMEWORKS_OPTIONS} ${FTD3XX_FOLDER}/${FTD3XX_LIB} -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window -lpthread
 
-xx3dsfml.o: xx3dsfml.cpp
+xx3dsfml.o: xx3dsfml.cpp ${FTD3XX_FOLDER}/${FTD3XX_HEADER}
 	${CXX} -std=c++17 -I ${FTD3XX_FOLDER} -c xx3dsfml.cpp -o xx3dsfml.o
 
 clean:
@@ -60,14 +60,17 @@ install: uninstall clean xx3dsfml
 uninstall: uninstall_ftd3xx
 	sudo rm -f /usr/local/bin/xx3dsfml
 
-download_ftd3xx: remove_ftd3xx
+ifeq (4.3,$(firstword $(sort $(MAKE_VERSION) 4.3)))
+${FTD3XX_FOLDER}/${FTD3XX_LIB} ${FTD3XX_FOLDER}/${FTD3XX_HEADER} &:
+else
+${FTD3XX_FOLDER}/${FTD3XX_LIB}: ${FTD3XX_FOLDER}/${FTD3XX_HEADER}
+${FTD3XX_FOLDER}/${FTD3XX_HEADER}:
+endif
 	mkdir -p ${FTD3XX_FOLDER}/downloads
 	curl https://ftdichip.com/wp-content/uploads/${URL_TIME}/${TAR} -o ${FTD3XX_FOLDER}/downloads/${TAR}
 	${ZIP}
-	cp ${SRC_FOLDER}/${LIB} ${FTD3XX_FOLDER}
+	cp ${SRC_FOLDER}/${FTD3XX_LIB} ${FTD3XX_FOLDER}
 	cp ${SRC_FOLDER}/*.h ${FTD3XX_FOLDER}
 	rm -fr ${FTD3XX_FOLDER}/downloads
 	${CLEANUP_CMD}
 
-remove_ftd3xx:
-	rm -fr ${FTD3XX_FOLDER}

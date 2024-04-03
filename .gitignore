@@ -5,3 +5,4 @@ xx3dsfml
 *.a
 presets/
 ftd3xx/
+build/

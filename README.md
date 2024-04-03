@@ -20,7 +20,7 @@ _Note: Make sure the 3DS audio is not set to Surround._
 
 xx3dsfml has two dependencies: [FTDI's D3XX driver](https://ftdichip.com/drivers/d3xx-drivers/) and [SFML](https://www.sfml-dev.org/).
 
-The D3XX driver can be installed with the provided Makefile as outlined in the [Compile and Install](#compile-and-install) section. As of now, this is the required way to install the driver in order to fully support this program. This is because the latest driver (1.0.14) is bugged, so the previous version (1.0.5) will be installed instead. The latest version can still be used, but it will be unstable and prone to crashing in certain circumstances.
+The D3XX driver will be automatically downloaded with the provided Makefile. As of writing, it will not be the latest version of the driver. This is because the latest driver (1.0.14) is bugged, so the previous version (1.0.5) will be installed instead. The latest version can still be used, but it will be unstable and prone to crashing in certain circumstances.
 
 The native C++ version of SFML, including its development files, also needs to be installed. The simplest way to accomplish this would be using a package manager, which [Homebrew](https://brew.sh/) is a popular choice for on macOS.
 
@@ -30,10 +30,8 @@ _Note: C++ is the default language for SFML and is not a binding._
 
 Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile is provided with the following functionality:
 
-1. `make`:                    This will generate the executable. If it's the first time building the application, calling `make download_ftd3xx` first is required.
+1. `make`:                    This will generate the executable.
 2. `make clean`:              This will clean the build artifacts.
-3. `make download_ftd3xx`:    This will download the D3XX driver in the folder. Required to build.
-3. `make remove_ftd3xx`:      This will remove the D3XX driver in the folder, if present.
 3. `make install`:            This will install the executable as a systemwide command, which can be called using `xx3dsfml` in the terminal from any directory.
 4. `make uninstall`:          This will remove the systemwide executable.
 
