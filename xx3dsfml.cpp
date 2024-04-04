@@ -15,6 +15,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <chrono>
 #include <queue>
 
 #define NAME "xx3dsfml"
@@ -43,11 +44,13 @@
 #define FRAME_SIZE_RGB (CAP_RES * 3)
 #define FRAME_SIZE_RGBA (CAP_RES * 4)
 
-#define AUDIO_BUF_COUNT 7
+// Threshold to keep the audio latency limited in "amount of frames".
+#define AUDIO_LATENCY 4
+#define AUDIO_BUF_COUNT ((AUDIO_LATENCY * 2) + 1)
 #define AUDIO_CHANNELS 2
 #define SAMPLE_RATE 32734
-#define AUDIO_LATENCY 4
-#define AUDIO_FAILURE_THRESHOLD 8
+// Number of consecutive failures to restart the audio when switching output.
+#define AUDIO_FAILURE_THRESHOLD 20
 
 #define USB_NUM_CHECKS 3
 #define USB_CHECKS_PER_SECOND ((USB_FPS + (USB_FPS / 12)) * USB_NUM_CHECKS)
@@ -161,6 +164,7 @@ private:
 
 ConsumerMutex g_video_wait;
 ConsumerMutex g_audio_wait;
+ConsumerMutex g_samples_wait;
 
 bool connect(bool);
 
@@ -168,12 +172,16 @@ class Audio : public sf::SoundStream {
 public:
 	int loaded_volume = -1;
 	bool loaded_mute = false;
+	bool restart = false;
 
 	Audio() {
 		sf::SoundStream::initialize(AUDIO_CHANNELS, SAMPLE_RATE);
 		#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
-		sf::SoundStream::setProcessingInterval(sf::milliseconds(0));
+		// Since we receive data every 16.6 ms, this is useless,
+		// and only increases CPU load... (Default is 10 ms)
+		//sf::SoundStream::setProcessingInterval(sf::Time::Zero);
 		#endif
+		start_audio();
 	}
 	
 	void update_volume(int volume, bool mute) {
@@ -199,17 +207,73 @@ public:
 		}
 		setVolume(mute ? 0 : volume);
 	}
+	
+	void start_audio() {
+		g_samples_wait.try_lock();
+		terminate = false;
+		num_consecutive_fast_seek = 0;
+		this->clock_time_start = std::chrono::high_resolution_clock::now();
+	}
+
+	void stop_audio() {
+		terminate = true;
+		g_samples_wait.unlock();
+	}
 
 private:
+	bool terminate;
+	int num_consecutive_fast_seek;
+	sf::Int16 buffer[SAMPLE_SIZE_16];
+	std::chrono::time_point<std::chrono::high_resolution_clock> clock_time_start;
+
 	bool onGetData(sf::SoundStream::Chunk &data) override {
-		if (g_samples.empty()) {
+		if(terminate)
+			return false;
+
+		// Do all of this to understand if the audio has errored out and
+		// if it should be restarted...
+		auto curr_time = std::chrono::high_resolution_clock::now();
+		const std::chrono::duration<double> diff = curr_time - this->clock_time_start;
+		if(diff.count() < 0.0005)
+			num_consecutive_fast_seek++;
+		else
+			num_consecutive_fast_seek = 0;
+		if(num_consecutive_fast_seek > AUDIO_FAILURE_THRESHOLD)
+			restart = true;
+
+		if(restart) {
+			terminate = true;
 			return false;
 		}
 
-		data.samples = g_samples.front().bytes;
-		data.sampleCount = g_samples.front().size;
+		int loaded_samples = g_samples.size();
+		while(loaded_samples <= 0) {
+			g_samples_wait.lock();
+			if(terminate)
+				return false;
+			loaded_samples = g_samples.size();
+		}
+		data.samples = (const sf::Int16*)buffer;
+
+		while(loaded_samples > 2) {
+			g_samples.pop();
+			loaded_samples = g_samples.size();
+		}
+
+		const sf::Int16 *data_samples = g_samples.front().bytes;
+		int count =  g_samples.front().size;
+		memcpy(buffer, data_samples, count * sizeof(sf::Int16));
+
+		data.sampleCount = count;
+
+		// Unused, but could be useful info
+		//double real_sample_rate = (1.0 / g_samples.front().time) * count / 2;
 
 		g_samples.pop();
+
+		// Basically, look into how low the time between calls of the function is
+		curr_time = std::chrono::high_resolution_clock::now();
+		clock_time_start = curr_time;
 
 		return true;
 	}
@@ -858,19 +922,21 @@ void playback() {
 					if(++audio_buf_counter == AUDIO_BUF_COUNT) {
 						audio_buf_counter = 0;
 					}
+					g_samples_wait.unlock();
 				}
 			}
 			prev_out = curr_out;
 			
 			loaded_samples = g_samples.size();
-			if (audio.getStatus() != sf::SoundStream::Playing) {
+			if(audio.getStatus() != sf::SoundStream::Playing) {
+				audio.stop_audio();
 				if (loaded_samples > 0) {
-					num_consecutive_audio_stop++;
-					if (num_consecutive_audio_stop > AUDIO_FAILURE_THRESHOLD) {
+					if(audio.restart) {
 						audio.stop();
 						audio.~Audio();
 						::new(&audio) Audio();
 					}
+					audio.start_audio();
 					audio.play();
 				}
 			}
@@ -880,10 +946,13 @@ void playback() {
 			}
 		}
 		else {
+			audio.stop_audio();
+			audio.stop();
 			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
 		}
 	}
 
+	audio.stop_audio();
 	audio.stop();
 }
 
@@ -892,7 +961,6 @@ void render(bool skip_io) {
 	int curr_out, prev_out = BUF_COUNT - 1;
 	bool loaded_split = false;
 	bool re_init = true;
-	bool do_blank_screen = true;
 
 	g_in_tex.create(CAP_WIDTH, CAP_HEIGHT);
 
@@ -955,13 +1023,12 @@ void render(bool skip_io) {
 				}
 			}
 			prev_out = curr_out;
-			do_blank_screen = true;
 		}
 		else {
 			sf::sleep(sf::milliseconds(1000/USB_CHECKS_PER_SECOND));
 		}
 
-		if((!g_connected) && do_blank_screen) {
+		if(!g_connected) {
 			memset(out_buf, 0, FRAME_SIZE_RGBA);
 			g_in_tex.update(out_buf, CAP_WIDTH, CAP_HEIGHT, 0, 0);
 			if (loaded_split) {
@@ -971,7 +1038,6 @@ void render(bool skip_io) {
 			else {
 				joint_screen.draw(&top_screen.m_in_rect, &bot_screen.m_in_rect);
 			}
-			do_blank_screen = false;
 		}
 
 		int load_index = 0;
