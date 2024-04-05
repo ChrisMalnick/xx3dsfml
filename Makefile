@@ -57,7 +57,7 @@ install: uninstall clean xx3dsfml
 	sudo mkdir -p /usr/local/bin
 	sudo mv xx3dsfml /usr/local/bin
 
-uninstall: uninstall_ftd3xx
+uninstall:
 	sudo rm -f /usr/local/bin/xx3dsfml
 
 ifeq (4.3,$(firstword $(sort $(MAKE_VERSION) 4.3)))
