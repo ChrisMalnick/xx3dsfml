@@ -487,43 +487,40 @@ public:
 	}
 
 	void poll() {
-		while (this->m_win.pollEvent(this->m_event)) {
-			switch (this->m_event.type) {
+		sf::Event event;
+		while (this->m_win.pollEvent(event)) {
+			switch (event.type) {
 			case sf::Event::Closed:
 				g_running = false;
 				break;
 
-			case sf::Event::KeyPressed:
-				switch (this->m_event.key.code) {
-				case sf::Keyboard::C:
+			case sf::Event::TextEntered:
+				switch (event.text.unicode) {
+				case 'c':
 					g_connected = connect(true);
 					break;
 
-				case sf::Keyboard::S:
+				case 's':
 					g_split = !g_split;
 					break;
 
-				case sf::Keyboard::B:
+				case 'b':
 					this->m_out_tex.setSmooth(this->m_info.is_blurred = !this->m_info.is_blurred);
 					break;
 
-				#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
-				case sf::Keyboard::Hyphen:
-				#else
-				case sf::Keyboard::Dash:
-				#endif
+				case '-':
 					this->m_info.scaling -= 0.5;
 					if (this->m_info.scaling < 1.25)
 						this->m_info.scaling = 1.0;
 					break;
 
-				case sf::Keyboard::Equal:
+				case '=':
 					this->m_info.scaling += 0.5;
 					if (this->m_info.scaling > 44.75)
 						this->m_info.scaling = 45.0;
 					break;
 
-				case sf::Keyboard::LBracket:
+				case '(':
 					std::swap(this->m_width, this->m_height);
 
 					this->m_info.rotation = (this->m_info.rotation + 90) % 360;
@@ -531,7 +528,7 @@ public:
 
 					break;
 
-				case sf::Keyboard::RBracket:
+				case ')':
 					std::swap(this->m_width, this->m_height);
 
 					this->m_info.rotation = (this->m_info.rotation + 270) % 360;
@@ -539,11 +536,7 @@ public:
 
 					break;
 
-				#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
-				case sf::Keyboard::Apostrophe:
-				#else
-				case sf::Keyboard::Quote:
-				#endif
+				case '\'':
 					this->m_info.crop_kind = static_cast<Crop>((this->m_info.crop_kind + 1) % Crop::END);
 
 					this->crop();
@@ -551,12 +544,7 @@ public:
 
 					break;
 
-
-				#if (SFML_VERSION_MAJOR > 2) || ((SFML_VERSION_MAJOR == 2) && (SFML_VERSION_MINOR >= 6))
-				case sf::Keyboard::Semicolon:
-				#else
-				case sf::Keyboard::SemiColon:
-				#endif
+				case ';':
 					this->m_info.crop_kind = static_cast<Crop>(((this->m_info.crop_kind - 1) % Crop::END + Crop::END) % Crop::END);
 
 					this->crop();
@@ -564,36 +552,44 @@ public:
 
 					break;
 
-				case sf::Keyboard::M:
+				case 'm':
 					g_mute = !g_mute;
 					break;
 
-				case sf::Keyboard::Comma:
+				case ',':
 					g_mute = false;
 					g_volume -= 5;
 					if(g_volume < 0)
 						g_volume = 0;
 					break;
 
-				case sf::Keyboard::Period:
+				case '.':
 					g_mute = false;
 					g_volume += 5;
 					if(g_volume > 100)
 						g_volume = 100;
 					break;
 
+				default:
+					break;
+				}
+
+				break;
+
+			case sf::Event::KeyPressed:
+				switch (event.key.code) {
 				case sf::Keyboard::F1:
 				case sf::Keyboard::F2:
 				case sf::Keyboard::F3:
 				case sf::Keyboard::F4:
-					this->m_prepare_load = this->m_event.key.code - sf::Keyboard::F1 + 1;
+					this->m_prepare_load = event.key.code - sf::Keyboard::F1 + 1;
 					break;
 
 				case sf::Keyboard::F5:
 				case sf::Keyboard::F6:
 				case sf::Keyboard::F7:
 				case sf::Keyboard::F8:
-					this->m_prepare_save = this->m_event.key.code - sf::Keyboard::F5 + 1;
+					this->m_prepare_save = event.key.code - sf::Keyboard::F5 + 1;
 					break;
 				}
 
@@ -654,7 +650,6 @@ private:
 	sf::RectangleShape m_out_rect;
 
 	sf::View m_view;
-	sf::Event m_event;
 
 	bool horizontal() {
 		return this->m_info.rotation / 10 % 2;
