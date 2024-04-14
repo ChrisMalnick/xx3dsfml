@@ -29,31 +29,26 @@ else ifeq (${SYS}, Linux)
 endif
 
 xx3dsfml: xx3dsfml.o
-	sudo g++ xx3dsfml.o -o xx3dsfml -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window
-	sudo rm xx3dsfml.o
-	sudo mkdir -p /usr/local/bin
-	sudo mv xx3dsfml /usr/local/bin
+	${CXX} xx3dsfml.o -o xx3dsfml -pthread -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window
 
 xx3dsfml.o: xx3dsfml.cpp
-	sudo g++ -c xx3dsfml.cpp -o xx3dsfml.o
+	${CXX} -std=c++17 -c xx3dsfml.cpp -o xx3dsfml.o
 
 clean:
-	sudo rm /usr/local/bin/xx3dsfml
+	rm -f xx3dsfml *.o
 
 install:
-	sudo mkdir temp
-	sudo curl https://ftdichip.com/wp-content/uploads/2023/03/${TAR} -o temp/${TAR}
-	sudo ${ZIP}
-	sudo mkdir -p /usr/local/lib
-	sudo cp temp/${LIB} /usr/local/lib
-	sudo chmod 755 /usr/local/lib/${LIB}
-	sudo ln -sf /usr/local/lib/${LIB} /usr/local/lib/libftd3xx.${EXT}
-	sudo ${UPD}
-	sudo mkdir -p /usr/local/include/libftd3xx
-	sudo cp temp/*.h /usr/local/include/libftd3xx
-	sudo chmod 644 /usr/local/include/libftd3xx/*.h
-	sudo rm -r temp
+	mkdir -p temp /usr/local/bin /usr/local/include/libftd3xx /usr/local/lib
+	curl https://ftdichip.com/wp-content/uploads/2023/03/${TAR} -o temp/${TAR}
+	${ZIP}
+	cp temp/*.h /usr/local/include/libftd3xx
+	cp temp/${LIB} /usr/local/lib
+	rm -rf temp
+	chmod 644 /usr/local/include/libftd3xx/*.h
+	chmod 755 /usr/local/lib/${LIB}
+	ln -sf /usr/local/lib/${LIB} /usr/local/lib/libftd3xx.${EXT}
+	${UPD}
+	${CXX} -std=c++17 -o /usr/local/bin/xx3dsfml xx3dsfml.cpp -pthread -lftd3xx -lsfml-audio -lsfml-graphics -lsfml-system -lsfml-window
 
 uninstall:
-	sudo rm /usr/local/lib/libftd3xx.*
-	sudo rm -r /usr/local/include/libftd3xx
+	rm -rf /usr/local/bin/xx3dsfml /usr/local/include/libftd3xx /usr/local/lib/libftd3xx.*
