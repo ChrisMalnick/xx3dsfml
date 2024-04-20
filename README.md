@@ -33,7 +33,7 @@ Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile 
 
 - `make`:               This will build the xx3dsfml executable locally, which can be executed via the `./xx3dsfml` command from the directory where it resides. This requires the D3XX driver to already be installed.
 - `make clean`:         This will remove all files, including the local xx3dsfml executable, created by the above command.
-- `make update`:        This will download the latest versions of the Makefile, README.md, and xx3dsfml.cpp files.
+- `make update`:        This will download the latest versions of the LICENSE, Makefile, README.md, and xx3dsfml.cpp files.
 - `make install`:       This will install the D3XX driver development files and the xx3dsfml executable systemwide. This xx3dsfml executable can be executed via the `xx3dsfml` command from any directory. This will also allow the D3XX driver to be used by other programs and when building the xx3dsfml executable locally.
 - `make uninstall`:     This will uninstall the D3XX driver development files and the systemwide xx3dsfml executable.
 
