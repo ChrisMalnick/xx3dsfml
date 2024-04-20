@@ -10,6 +10,7 @@ xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscaptu
 - The ability to rotate the windows independently of each other to either side and even upside down.
 - The ability to crop the windows independently of each other for DS games in both scaled and native resolution.
 - The ability to blur the contents of the windows independently of each other.
+- The ability to both darken and brighten the screen and also quickly return to the standard default brightness.
 - Smooth, continuous volume controls with separate mute control.
 - A config file that saves all of these settings individually which allows all three windows to have completely different configurations.
 - 12 configurable user layouts that can be saved to and loaded from on the fly.
@@ -30,30 +31,34 @@ _Note: C++ is the default language for SFML and is not a binding._
 
 Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile is provided with the following functionality:
 
-- `make`:            This will build the xx3dsfml executable locally, which can be executed via the `./xx3dsfml` command from the directory where it resides. This requires the D3XX driver to already be installed.
-- `make clean`:      This will remove all files, including the local xx3dsfml executable, created by the above command.
-- `make install`:    This will install the D3XX driver development files and the xx3dsfml executable systemwide. This xx3dsfml executable can be executed via the `xx3dsfml` command from any directory. This will also allow the D3XX driver to be used by other programs and when building the xx3dsfml executable locally.
-- `make uninstall`:  This will uninstall the D3XX driver development files and the systemwide xx3dsfml executable.
+- `make`:               This will build the xx3dsfml executable locally, which can be executed via the `./xx3dsfml` command from the directory where it resides. This requires the D3XX driver to already be installed.
+- `make clean`:         This will remove all files, including the local xx3dsfml executable, created by the above command.
+- `make update`:        This will download the latest versions of the Makefile, README.md, and xx3dsfml.cpp files.
+- `make install`:       This will install the D3XX driver development files and the xx3dsfml executable systemwide. This xx3dsfml executable can be executed via the `xx3dsfml` command from any directory. This will also allow the D3XX driver to be used by other programs and when building the xx3dsfml executable locally.
+- `make uninstall`:     This will uninstall the D3XX driver development files and the systemwide xx3dsfml executable.
 
-When using the `make install` or `make uninstall` commands, you may be required to have root (admin) privileges. This can be achieved by prepending these commands with the `sudo` command and entering your password when prompted. On macOS, you may also be prompted to install the Apple Command Line Developer Tools first. Additionally, on macOS, a command line capable version of 7-Zip is required at this time. This is because the previous version of the D3XX driver (1.0.5) is only available as a DMG file, which 7-Zip is capable of extracting from.
+When using the `make install` or `make uninstall` commands, you may be required to have root (admin) privileges. This can be achieved by prepending these commands with the `sudo` command and entering your password when prompted. On macOS, you may also be prompted to install the Apple Command Line Developer Tools first. Additionally, on macOS, a command line capable version of 7-Zip is required at this time. This is because the previous version of the D3XX driver (1.0.5) is only available as a DMG file, which 7-Zip is capable of extracting from. If, for whatever reason, the install fails when compiling the xx3dsfml.cpp code, a system reboot may be required first before attempting to install again.
 
 #### Controls
 
-- __C key__:            Toggles the logical connection to the N3DSXL. The N3DSXL is logically connected by default if physically connected at runtime and will be logically disconnected if physically disconnected during runtime. This control is bypassed when the `--auto` flag is set as outlined in the __Arguments__ section below.
-- __S key__:            Swaps between split mode and joint mode which splits the screens into separate windows or joins them into a single window respectively.
+- __Escape key__:       Toggles the logical connection to the N3DSXL. The N3DSXL is logically connected by default if physically connected at runtime and will be logically disconnected if physically disconnected during runtime. This control is bypassed when the `--auto` flag is set as outlined in the __Arguments__ section below.
+- __Tab key__:          Swaps between split mode and joint mode which splits the screens into separate windows or joins them into a single window respectively.
+- __0 key__:            Returns the brightness to its default of 100.
+- __- key__:            Decrements the brightness by 5. 50 is the minimum.
+- __= key__:            Increments the brightness by 5. 150 is the maximum.
 - __B key__:            Toggles blurring on/off for the focused window. This is only noticeable at 1.5x scale or greater.
-- __- key__:            Decrements the scaling by 0.5x for the focused window. 1.0x is the minimum.
-- __= key__:            Increments the scaling by 0.5x for the focused window. 4.5x is the maximum.
-- __[ key__:            Rotates the focused window 90 degrees counterclockwise.
-- __] key__:            Rotates the focused window 90 degrees clockwise.
-- __; key__:            Cycles to the next cropping mode for the focused window. The currently supported cropping modes are for default 3DS, scaled DS, and native DS respectively.
-- __' key__:            Cycles to the previous cropping mode for the focused window. The currently supported cropping modes are for default 3DS, scaled DS, and native DS respectively.
+- __Down key__:         Decrements the scaling by 0.5x for the focused window. 1.0x is the minimum.
+- __Up key__:           Increments the scaling by 0.5x for the focused window. 4.5x is the maximum.
+- __Left key__:         Rotates the focused window 90 degrees counterclockwise.
+- __Right key__:        Rotates the focused window 90 degrees clockwise.
+- __[ key__:            Cycles to the previous cropping mode for the focused window. The currently supported cropping modes are for default 3DS, scaled DS, and native DS respectively.
+- __] key__:            Cycles to the next cropping mode for the focused window. The currently supported cropping modes are for default 3DS, scaled DS, and native DS respectively.
 - __M key__:            Toggles mute on/off.
 - __, key__:            Decrements the volume by 5 units. 0 is the minimum. Adjusting the volume won't cause the audio to unmute.
 - __. key__:            Increments the volume by 5 units. 100 is the maximum. Adjusting the volume won't cause the audio to unmute.
 - __F1 - F12 keys__:    Loads from layouts 1 through 12 respectively, and while holding __Ctrl__, saves to layouts 1 through 12 respectively.
 
-_Note: The volume is independent of the actual volume level set with the physical slider on the console._
+_Note: The volume is independent of the actual volume level set with the physical slider on the 3DS, and the brightness is independent of the actual brightness set in the options menu of the 3DS._
 
 #### Settings
 
@@ -80,7 +85,7 @@ _Note: Multiple runtime flags can be used at a time and can even be aliased in a
 - Switching graphics devices while the program is running is something I shouldn't even need to write about here. You're smarter than that, right?
 - If the program is ever unable to create a handle to the N3DSXL at startup even though it's connected to and recognized by the system, physically reconnecting it and restarting the program should resolve the issue.
 - If any issues occur while the N3DSXL is indirectly connected to the system that isn't resolved by reconnecting it and restarting the program, please consider connecting it directly to the system instead.
-- If the N3DSXL cannot be logically connected to no matter the case, it may be due to the user having insufficient permissions to access the USB device. There are many ways in which this can be resolved such as adding the user to a group that has the required access or creating a udev rule that grants more permissive access.
+- If the N3DSXL cannot be logically connected no matter the case, it may be due to the user having insufficient permissions to access the USB device. There are many ways in which this can be resolved such as adding the user to a group that has the required access or creating a udev rule that grants more permissive access.
 - On some systems, the audio playback may be choppy or crackly. This is likely due to how much priority the system is giving the program and its processes. In order for real time audio to be low latency, it needs to be processed as quickly as reasonably possible. This sort of issue is common amongst audio software that requires low latency processing, so a general solution may be applicable in this case.
 
 #### Media

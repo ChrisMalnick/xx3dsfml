@@ -27,15 +27,13 @@
 
 #define FIFO_CHANNEL 0
 
-#define TOP_WIDTH_3DS 400
-#define BOT_WIDTH_3DS 320
-
-#define HEIGHT_3DS 240
-
-#define CAP_WIDTH HEIGHT_3DS
-#define CAP_HEIGHT (TOP_WIDTH_3DS + BOT_WIDTH_3DS)
+#define CAP_WIDTH 240
+#define CAP_HEIGHT (400 + 320)
 
 #define CAP_RES (CAP_WIDTH * CAP_HEIGHT)
+
+#define TOP_RES (400 * 240)
+#define DELTA_RES ((400 - 320) * 240)
 
 #define FRAME_SIZE_RGB (CAP_RES * 3)
 #define FRAME_SIZE_RGBA (CAP_RES * 4)
@@ -48,16 +46,6 @@
 
 #define BUF_COUNT 8
 #define BUF_SIZE (FRAME_SIZE_RGB + SAMPLE_SIZE_8)
-
-#define TOP_RES_3DS (TOP_WIDTH_3DS * HEIGHT_3DS)
-
-#define DELTA_WIDTH_3DS (TOP_WIDTH_3DS - BOT_WIDTH_3DS)
-#define DELTA_RES_3DS (DELTA_WIDTH_3DS * HEIGHT_3DS)
-
-#define WIDTH_DS 256
-#define HEIGHT_DS 192
-
-#define DELTA_HEIGHT_DS (HEIGHT_3DS - HEIGHT_DS)
 
 #define FRAMERATE_LIMIT 60
 
@@ -374,8 +362,11 @@ class Video {
 public:
 	class Screen {
 	public:
-		enum Type { TOP, BOT, JOINT, COUNT };
-		enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS, END };
+		enum Type { TOP, BOT, JOINT, SIZE };
+		enum Crop { DEFAULT_3DS, SCALED_DS, NATIVE_DS, COUNT };
+
+		static inline const int widths[Video::Screen::Crop::COUNT] = { 400, 320, 256 };
+		static inline const int heights[Video::Screen::Crop::COUNT] = { 240, 240, 192 };
 
 		sf::RectangleShape m_in_rect;
 		sf::RenderWindow m_win;
@@ -406,7 +397,7 @@ public:
 		void build(Video::Screen::Type type, int u, int width, bool visible) {
 			this->m_type = type;
 
-			this->resize(TOP_WIDTH_3DS, this->height(HEIGHT_3DS));
+			this->resize(Video::Screen::widths[Video::Screen::Crop::DEFAULT_3DS], this->height(Video::Screen::heights[Video::Screen::Crop::DEFAULT_3DS]));
 
 			this->m_in_rect.setTexture(&Video::in_tex);
 			this->m_in_rect.setTextureRect(sf::IntRect(0, u, this->m_height, width));
@@ -430,7 +421,7 @@ public:
 		}
 
 		void reset() {
-			this->resize(TOP_WIDTH_3DS, this->height(HEIGHT_3DS));
+			this->resize(Video::Screen::widths[Video::Screen::Crop::DEFAULT_3DS], this->height(Video::Screen::heights[Video::Screen::Crop::DEFAULT_3DS]));
 
 			this->m_view.setRotation(0);
 
@@ -459,21 +450,19 @@ public:
 
 			switch (this->m_type) {
 			case Video::Screen::Type::TOP:
-				if (Video::split && this->m_crop == Video::Screen::Crop::NATIVE_DS) {
-					this->m_in_rect.move(0, -DELTA_HEIGHT_DS / 2);
+				if (Video::split) {
+					this->m_in_rect.move(0, (Video::Screen::heights[this->m_crop] - Video::Screen::heights[Video::Screen::Crop::DEFAULT_3DS]) / 2);
 				}
 
 				return;
 
 			case Video::Screen::Type::BOT:
 				if (Video::split) {
-					if (this->m_crop == Video::Screen::Crop::NATIVE_DS) {
-						this->m_in_rect.move(0, DELTA_HEIGHT_DS / 2);
-					}
+					this->m_in_rect.move(0, (Video::Screen::heights[Video::Screen::Crop::DEFAULT_3DS] - Video::Screen::heights[this->m_crop]) / 2);
 				}
 
 				else {
-					this->m_in_rect.move(DELTA_WIDTH_3DS / 2, HEIGHT_3DS);
+					this->m_in_rect.move((Video::Screen::widths[Video::Screen::Crop::DEFAULT_3DS] - Video::Screen::widths[Video::Screen::Crop::SCALED_DS]) / 2, Video::Screen::heights[Video::Screen::Crop::DEFAULT_3DS]);
 				}
 
 				return;
@@ -490,14 +479,22 @@ public:
 				case sf::Event::KeyPressed:
 					switch (this->m_event.key.code) {
 					case sf::Keyboard::Dash:
-						this->m_scale = this->m_scale > 1.5 ? static_cast<int>(this->m_scale / 0.5) * 0.5 - 0.5 : 1.0;
+						Video::brightness = Video::brightness > 55 ? Video::brightness / 5 * 5 - 5 : 50;
 						break;
 
 					case sf::Keyboard::Equal:
+						Video::brightness = Video::brightness < 145 ? Video::brightness / 5 * 5 + 5 : 150;
+						break;
+
+					case sf::Keyboard::Down:
+						this->m_scale = this->m_scale > 1.5 ? static_cast<int>(this->m_scale / 0.5) * 0.5 - 0.5 : 1.0;
+						break;
+
+					case sf::Keyboard::Up:
 						this->m_scale = this->m_scale < 4.0 ? static_cast<int>(this->m_scale / 0.5) * 0.5 + 0.5 : 4.5;
 						break;
 
-					case sf::Keyboard::LBracket:
+					case sf::Keyboard::Left:
 						std::swap(this->m_width, this->m_height);
 
 						this->m_rotation = ((this->m_rotation / 90 * 90 + 90) % 360 + 360) % 360;
@@ -505,7 +502,7 @@ public:
 
 						break;
 
-					case sf::Keyboard::RBracket:
+					case sf::Keyboard::Right:
 						std::swap(this->m_width, this->m_height);
 
 						this->m_rotation = ((this->m_rotation / 90 * 90 - 90) % 360 + 360) % 360;
@@ -513,16 +510,16 @@ public:
 
 						break;
 
-					case sf::Keyboard::Quote:
-						this->m_crop = static_cast<Crop>(((this->m_crop + 1) % Video::Screen::Crop::END + Video::Screen::Crop::END) % Video::Screen::Crop::END);
+					case sf::Keyboard::LBracket:
+						this->m_crop = static_cast<Crop>(((this->m_crop - 1) % Video::Screen::Crop::COUNT + Video::Screen::Crop::COUNT) % Video::Screen::Crop::COUNT);
 
 						this->crop();
 						this->move();
 
 						break;
 
-					case sf::Keyboard::SemiColon:
-						this->m_crop = static_cast<Crop>(((this->m_crop - 1) % Video::Screen::Crop::END + Video::Screen::Crop::END) % Video::Screen::Crop::END);
+					case sf::Keyboard::RBracket:
+						this->m_crop = static_cast<Crop>(((this->m_crop + 1) % Video::Screen::Crop::COUNT + Video::Screen::Crop::COUNT) % Video::Screen::Crop::COUNT);
 
 						this->crop();
 						this->move();
@@ -546,14 +543,18 @@ public:
 
 				case sf::Event::KeyReleased:
 					switch (this->m_event.key.code) {
-					case sf::Keyboard::C:
+					case sf::Keyboard::Escape:
 						if (!Capture::auto_connect) {
 							Capture::connected ? Capture::disconnecting = true : Capture::connected = Capture::connect();
 						}
 
 						break;
 
-					case sf::Keyboard::S:
+					case sf::Keyboard::Num0:
+						Video::brightness = 100;
+						break;
+
+					case sf::Keyboard::Tab:
 						Video::split ^= true;
 						Video::swap();
 
@@ -613,8 +614,10 @@ public:
 			this->m_out_tex.draw(this->m_in_rect);
 			this->m_out_tex.display();
 
+			Video::shader.setUniform("u_brightness", Video::brightness * 0.01f);
+
 			this->m_win.clear();
-			this->m_win.draw(this->m_out_rect);
+			this->m_win.draw(this->m_out_rect, &Video::shader);
 			this->m_win.display();
 		}
 
@@ -626,8 +629,10 @@ public:
 			this->m_out_tex.draw(*p_bot_rect);
 			this->m_out_tex.display();
 
+			Video::shader.setUniform("u_brightness", Video::brightness * 0.01f);
+
 			this->m_win.clear();
-			this->m_win.draw(this->m_out_rect);
+			this->m_win.draw(this->m_out_rect, &Video::shader);
 			this->m_win.display();
 		}
 
@@ -684,27 +689,27 @@ public:
 		}
 
 		void crop() {
-			switch (this->m_crop) {
-			case Video::Screen::Crop::DEFAULT_3DS:
-				this->horizontal() ? this->resize(this->height(HEIGHT_3DS), TOP_WIDTH_3DS) : this->resize(TOP_WIDTH_3DS, this->height(HEIGHT_3DS));
-				break;
-
-			case Video::Screen::Crop::SCALED_DS:
-				this->horizontal() ? this->resize(this->height(HEIGHT_3DS), BOT_WIDTH_3DS) : this->resize(BOT_WIDTH_3DS, this->height(HEIGHT_3DS));
-				break;
-
-			case Video::Screen::Crop::NATIVE_DS:
-				this->horizontal() ? this->resize(this->height(HEIGHT_DS), WIDTH_DS) : this->resize(WIDTH_DS, this->height(HEIGHT_DS));
-				break;
-			}
+			this->horizontal() ? this->resize(this->height(Video::Screen::heights[this->m_crop]), Video::Screen::widths[this->m_crop]) : this->resize(Video::Screen::widths[this->m_crop], this->height(Video::Screen::heights[this->m_crop]));
 
 			this->m_view.setSize(this->m_width, this->m_height);
 			this->m_win.setView(this->m_view);
 		}
 	};
 
-	static inline Screen screens[Video::Screen::Type::COUNT];
+	static inline const std::string frag = \
+		"uniform sampler2D u_tex;" \
+		"uniform float u_brightness;" \
+		"" \
+		"void main() {" \
+		"	gl_FragColor = texture2D(u_tex, gl_TexCoord[0]) * u_brightness;" \
+		"}";
+
+	static inline Screen screens[Video::Screen::Type::SIZE];
+
+	static inline sf::Shader shader;
 	static inline sf::Texture in_tex;
+
+	static inline int brightness = 100;
 
 	static inline bool split = false;
 	static inline bool vsync = false;
@@ -813,8 +818,8 @@ private:
 	}
 
 	static inline void map(UCHAR *p_in, UCHAR *p_out) {
-		for (int i = 0, j = DELTA_RES_3DS, k = TOP_RES_3DS; i < CAP_RES; ++i) {
-			if (i < DELTA_RES_3DS) {
+		for (int i = 0, j = DELTA_RES, k = TOP_RES; i < CAP_RES; ++i) {
+			if (i < DELTA_RES) {
 				p_out[4 * i + 0] = p_in[3 * i + 0];
 				p_out[4 * i + 1] = p_in[3 * i + 1];
 				p_out[4 * i + 2] = p_in[3 * i + 2];
@@ -892,6 +897,11 @@ void load(std::string path, std::string name) {
 					continue;
 				}
 
+				if (key == "brightness") {
+					Video::brightness = std::clamp(std::stoi(value) / 5 * 5, 50, 150);
+					continue;
+				}
+
 				if (key == "split") {
 					Video::split = std::stoi(value);
 					continue;
@@ -903,7 +913,7 @@ void load(std::string path, std::string name) {
 				}
 
 				if (key == "crop") {
-					p_screen->m_crop = static_cast<Video::Screen::Crop>((std::stoi(value) % Video::Screen::Crop::END + Video::Screen::Crop::END) % Video::Screen::Crop::END);
+					p_screen->m_crop = static_cast<Video::Screen::Crop>((std::stoi(value) % Video::Screen::Crop::COUNT + Video::Screen::Crop::COUNT) % Video::Screen::Crop::COUNT);
 					continue;
 				}
 
@@ -932,15 +942,16 @@ void save(std::string path, std::string name) {
 
 	file << "volume=" << Audio::volume << std::endl;
 	file << "mute=" << Audio::mute << std::endl;
+	file << "brightness=" << Video::brightness << std::endl;
 	file << "split=" << Video::split << std::endl;
 
-	for (int i = 0; i < Video::Screen::Type::COUNT; ++i) {
+	for (int i = 0; i < Video::Screen::Type::SIZE; ++i) {
 		std::string key = Video::screens[i].key();
 
 		file << key << "_blur=" << Video::screens[i].m_blur << std::endl;
 		file << key << "_crop=" << Video::screens[i].m_crop << std::endl;
 		file << key << "_rotation=" << Video::screens[i].m_rotation << std::endl;
-		file << key << "_scale=" << Video::screens[i].m_scale << (Video::screens[i].m_scale - static_cast<int>(Video::screens[i].m_scale) ? "" : ".0") << std::endl;
+		file << key << "_scale=" << std::to_string(Video::screens[i].m_scale).erase(3, 5) << std::endl;
 	}
 }
 
@@ -974,10 +985,11 @@ int main(int argc, char **argv) {
 	Video::p_load = &load;
 	Video::p_save = &save;
 
-	Video::screens[Video::Screen::Type::TOP].build(Video::Screen::Type::TOP, 0, TOP_WIDTH_3DS, Video::split);
-	Video::screens[Video::Screen::Type::BOT].build(Video::Screen::Type::BOT, TOP_WIDTH_3DS, BOT_WIDTH_3DS, Video::split);
-	Video::screens[Video::Screen::Type::JOINT].build(Video::Screen::Type::JOINT, 0, TOP_WIDTH_3DS, !Video::split);
+	Video::screens[Video::Screen::Type::TOP].build(Video::Screen::Type::TOP, 0, Video::Screen::widths[Video::Screen::Crop::DEFAULT_3DS], Video::split);
+	Video::screens[Video::Screen::Type::BOT].build(Video::Screen::Type::BOT, Video::Screen::widths[Video::Screen::Crop::DEFAULT_3DS], Video::Screen::widths[Video::Screen::Crop::SCALED_DS], Video::split);
+	Video::screens[Video::Screen::Type::JOINT].build(Video::Screen::Type::JOINT, 0, Video::Screen::widths[Video::Screen::Crop::DEFAULT_3DS], !Video::split);
 
+	Video::shader.loadFromMemory(Video::frag, sf::Shader::Fragment);
 	Video::in_tex.create(CAP_WIDTH, CAP_HEIGHT);
 
 	Video::init();

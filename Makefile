@@ -37,6 +37,12 @@ xx3dsfml.o: xx3dsfml.cpp
 clean:
 	rm -f xx3dsfml *.o
 
+update:
+	curl https://raw.githubusercontent.com/ChrisMalnick/xx3dsfml/main/LICENSE -o LICENSE
+	curl https://raw.githubusercontent.com/ChrisMalnick/xx3dsfml/main/Makefile -o Makefile
+	curl https://raw.githubusercontent.com/ChrisMalnick/xx3dsfml/main/README.md -o README.md
+	curl https://raw.githubusercontent.com/ChrisMalnick/xx3dsfml/main/xx3dsfml.cpp -o xx3dsfml.cpp
+
 install:
 	mkdir -p temp /usr/local/bin /usr/local/include/libftd3xx /usr/local/lib
 	curl https://ftdichip.com/wp-content/uploads/2023/03/${TAR} -o temp/${TAR}
