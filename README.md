@@ -10,7 +10,7 @@ xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscaptu
 - The ability to rotate the windows independently of each other to either side and even upside down.
 - The ability to crop the windows independently of each other for DS games in both scaled and native resolution.
 - The ability to blur the contents of the windows independently of each other.
-- The ability to both darken and brighten the screen and also quickly return to the standard default brightness.
+- The ability to both darken and lighten the screen and also quickly return to the standard default brightness.
 - Smooth, continuous volume controls with separate mute control.
 - A config file that saves all of these settings individually which allows all three windows to have completely different configurations.
 - 12 configurable user layouts that can be saved to and loaded from on the fly.
