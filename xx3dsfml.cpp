@@ -4,7 +4,7 @@
  * This software is authored by Chris Malnick (2023, 2024).
  */
 
-#include <libftd3xx/ftd3xx.h>
+#include <ftd3xx/ftd3xx.h>
 
 #include <SFML/Audio.hpp>
 #include <SFML/Graphics.hpp>
@@ -701,7 +701,7 @@ public:
 		"uniform float u_brightness;" \
 		"" \
 		"void main() {" \
-		"	gl_FragColor = texture2D(u_tex, gl_TexCoord[0]) * u_brightness;" \
+		"	gl_FragColor = texture2D(u_tex, gl_TexCoord[0].st) * u_brightness;" \
 		"}";
 
 	static inline Screen screens[Video::Screen::Type::SIZE];

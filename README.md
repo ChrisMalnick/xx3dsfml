@@ -8,14 +8,14 @@ xx3dsfml is a multi-platform capture program for [3dscapture's](https://3dscaptu
 - The ability to split the screens into separate windows or join them into a single window.
 - The ability to evenly and incrementally scale the windows independently of each other.
 - The ability to rotate the windows independently of each other to either side and even upside down.
-- The ability to crop the windows independently of each other for DS games in both scaled and native resolution.
+- The ability to crop the windows independently of each other by game system in both their scaled and native resolutions where applicable.
 - The ability to blur the contents of the windows independently of each other.
 - The ability to both darken and lighten the screen and also quickly return to the standard default brightness.
 - Smooth, continuous volume controls with separate mute control.
 - A config file that saves all of these settings individually which allows all three windows to have completely different configurations.
 - 12 configurable user layouts that can be saved to and loaded from on the fly.
 
-_Note: DS games boot in scaled resolution mode by default. Holding START or SELECT while launching DS games will boot in native resolution mode._
+_Note: Games for other systems boot in scaled resolution mode by default. Holding START or SELECT while launching these games will boot in native resolution mode._
 
 #### Dependencies
 
@@ -33,11 +33,12 @@ Installing xx3dsfml is as simple as compiling the xx3dsfml.cpp code. A Makefile 
 
 - `make`:               This will build the xx3dsfml executable locally, which can be executed via the `./xx3dsfml` command from the directory where it resides. This requires the D3XX driver to already be installed.
 - `make clean`:         This will remove all files, including the local xx3dsfml executable, created by the above command.
+- `make ftd3xx`:        This will install the D3XX driver, including its development files.
+- `make install`:       This will build and install the xx3dsfml executable systemwide along with the D3XX driver, including its development files. This xx3dsfml executable can be executed via the `xx3dsfml` command from any directory.
+- `make uninstall`:     This will uninstall the systemwide xx3dsfml executable along with the D3XX driver, including its development files.
 - `make update`:        This will download the latest versions of the LICENSE, Makefile, README.md, and xx3dsfml.cpp files.
-- `make install`:       This will install the D3XX driver development files and the xx3dsfml executable systemwide. This xx3dsfml executable can be executed via the `xx3dsfml` command from any directory. This will also allow the D3XX driver to be used by other programs and when building the xx3dsfml executable locally.
-- `make uninstall`:     This will uninstall the D3XX driver development files and the systemwide xx3dsfml executable.
 
-When using the `make install` or `make uninstall` commands, you may be required to have root (admin) privileges. This can be achieved by prepending these commands with the `sudo` command and entering your password when prompted. On macOS, you may also be prompted to install the Apple Command Line Developer Tools first. Additionally, on macOS, a command line capable version of 7-Zip is required at this time. This is because the previous version of the D3XX driver (1.0.5) is only available as a DMG file, which 7-Zip is capable of extracting from. If, for whatever reason, the install fails when compiling the xx3dsfml.cpp code, a system reboot may be required first before attempting to install again.
+When using any of these commands, you may be required to have root (admin) privileges. This can be achieved by prepending these commands with the `sudo` command and entering your password when prompted. On macOS, you may also be prompted to install the Apple Command Line Developer Tools first. Additionally, on macOS, a command line capable version of 7-Zip is required at this time. This is because the previous version of the D3XX driver (1.0.5) is only available as a DMG file, which 7-Zip is capable of extracting from. If, for whatever reason, compiling the xx3dsfml.cpp code fails even after installing the dependencies, a system reboot may be required first before attempting to compile it again.
 
 #### Controls
 
@@ -80,13 +81,13 @@ _Note: Multiple runtime flags can be used at a time and can even be aliased in a
 
 #### Notes
 
-- Minimal audio artifacts can occur in certain fringe scenarios, and the audio can vary slightly in latency. This is partially due to the 3DS's non-integer sample rate as well as how it's captured by the hardware but is mostly due to how SFML currently implements streamed audio playback.
+- Minimal audio artifacts can occur in certain scenarios, and the audio can vary slightly in latency. This can be due to a number of factors including high system load as well as low processing priority, but even under ideal conditions, some degree of audio latency will still exist. This is partially due to the 3DS's non-integer sample rate as well as how it's captured by the hardware but is mostly due to how SFML currently implements streamed audio playback.
 - Switching audio devices while the program is running, though considered bad practice, should be okay. If the audio doesn't switch over to the new output device, logically reconnecting the N3DSXL should force it to change. Frankly, this is really something that should just be handled internally by SFML in the first place.
 - Switching graphics devices while the program is running is something I shouldn't even need to write about here. You're smarter than that, right?
 - If the program is ever unable to create a handle to the N3DSXL at startup even though it's connected to and recognized by the system, physically reconnecting it and restarting the program should resolve the issue.
 - If any issues occur while the N3DSXL is indirectly connected to the system that isn't resolved by reconnecting it and restarting the program, please consider connecting it directly to the system instead.
-- If the N3DSXL cannot be logically connected no matter the case, it may be due to the user having insufficient permissions to access the USB device. There are many ways in which this can be resolved such as adding the user to a group that has the required access or creating a udev rule that grants more permissive access.
-- On some systems, the audio playback may be choppy or crackly. This is likely due to how much priority the system is giving the program and its processes. In order for real time audio to be low latency, it needs to be processed as quickly as reasonably possible. This sort of issue is common amongst audio software that requires low latency processing, so a general solution may be applicable in this case.
+- If the N3DSXL cannot be logically connected no matter the case, it may be due to the user having insufficient permissions to access the USB device. This is a common, albeit system dependent, issue for which a general solution should be applicable.
+- On some systems, the audio playback may be choppy or crackly. This is likely due to how much priority the system is giving the program and its processes. In order for real time audio to be low latency, it needs to be processed as quickly as reasonably possible. This sort of issue is common amongst audio software that requires low latency processing, so a general solution, depending on the system, should be applicable in this case.
 
 #### Media
 
